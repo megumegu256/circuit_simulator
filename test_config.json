@@ -1,0 +1,23 @@
+{
+    "theme": "light",
+    "grid_enabled": true,
+    "snap_to_grid": true,
+    "auto_save": true,
+    "canvas_width": 1200,
+    "canvas_height": 800,
+    "last_project": "",
+    "shortcuts": {
+        "undo": "<Control-z>",
+        "redo": "<Control-y>",
+        "new": "<Control-n>",
+        "open": "<Control-o>",
+        "save": "<Control-s>",
+        "zoom_in": "<Control-plus>",
+        "zoom_out": "<Control-minus>",
+        "delete": "<Delete>",
+        "copy": "<Control-c>",
+        "paste": "<Control-v>",
+        "auto_arrange": "<Control-a>",
+        "custom_action": "<Control-h>"
+    }
+}

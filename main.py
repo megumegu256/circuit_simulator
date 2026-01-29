@@ -1,0 +1,2167 @@
+"""
+Circuit Simulator - 論理回路シミュレータ (将来的に量子回路もサポート予定)
+
+このプログラムは、視覚的な論理回路シミュレータを提供します。
+ユーザーはドラッグ&ドロップで論理ゲートを配置し、配線して回路を構築できます。
+
+主な機能:
+- 基本論理ゲート (AND, OR, NOT, NAND, NOR, XOR, XNOR) のサポート
+- ドラッグ&ドロップによるゲート配置と配線
+- シミュレーション実行と結果の視覚的表示
+- 回路の保存/読み込み (JSON形式)
+- 画像エクスポート機能
+- 自動配置整列機能
+- 設定管理 (config.json)
+- Undo/Redo 機能
+- ズームイン・ズームアウト
+- 複数回路のタブ管理
+- ステップ実行機能
+- シミュレーション履歴表示
+- ショートカットキーカスタマイズ
+
+使用方法:
+python main.py
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, Menu
+import json
+import os
+from dataclasses import dataclass, field
+from typing import List, Dict, Tuple, Optional, Any, Callable
+from enum import Enum
+from abc import ABC, abstractmethod
+import math
+from copy import deepcopy
+from collections import deque
+
+
+# ========== 定数定義 ==========
+CANVAS_WIDTH = 1200
+CANVAS_HEIGHT = 800
+GATE_WIDTH = 80
+GATE_HEIGHT = 60
+PIN_RADIUS = 5
+GRID_SIZE = 20
+MAX_HISTORY = 50  # Undo/Redo 履歴の最大数
+DEFAULT_ZOOM = 1.0
+MAX_ZOOM = 3.0
+MIN_ZOOM = 0.3
+ZOOM_STEP = 0.1
+
+DEFAULT_CONFIG = {
+    "theme": "light",
+    "grid_enabled": True,
+    "snap_to_grid": True,
+    "auto_save": True,
+    "canvas_width": CANVAS_WIDTH,
+    "canvas_height": CANVAS_HEIGHT,
+    "last_project": "",
+    "shortcuts": {
+        "undo": "<Control-z>",
+        "redo": "<Control-y>",
+        "new": "<Control-n>",
+        "open": "<Control-o>",
+        "save": "<Control-s>",
+        "zoom_in": "<Control-plus>",
+        "zoom_out": "<Control-minus>",
+        "delete": "<Delete>",
+        "copy": "<Control-c>",
+        "paste": "<Control-v>",
+        "auto_arrange": "<Control-a>"
+    }
+}
+
+
+# ========== 回路タイプ列挙型 ==========
+class CircuitType(Enum):
+    """回路のタイプを定義"""
+    LOGIC = "logic"  # 論理回路
+    QUANTUM = "quantum"  # 量子回路 (将来実装予定)
+
+
+# ========== 信号状態 ==========
+class SignalState(Enum):
+    """信号の状態"""
+    LOW = 0
+    HIGH = 1
+    UNDEFINED = -1
+
+
+# ========== Command パターン (Undo/Redo) ==========
+class Command(ABC):
+    """Undo/Redo のためのコマンド基底クラス"""
+    
+    @abstractmethod
+    def execute(self):
+        """コマンドを実行"""
+        pass
+    
+    @abstractmethod
+    def undo(self):
+        """コマンドを元に戻す"""
+        pass
+
+
+class AddComponentCommand(Command):
+    """コンポーネント追加コマンド"""
+    
+    def __init__(self, circuit: 'Circuit', component: 'Component'):
+        self.circuit = circuit
+        self.component = component
+    
+    def execute(self):
+        self.circuit.components[self.component.id] = self.component
+    
+    def undo(self):
+        if self.component.id in self.circuit.components:
+            del self.circuit.components[self.component.id]
+
+
+class RemoveComponentCommand(Command):
+    """コンポーネント削除コマンド"""
+    
+    def __init__(self, circuit: 'Circuit', comp_id: str):
+        self.circuit = circuit
+        self.comp_id = comp_id
+        self.component = None
+        self.related_wires = []
+    
+    def execute(self):
+        if self.comp_id in self.circuit.components:
+            self.component = deepcopy(self.circuit.components[self.comp_id])
+            self.related_wires = [
+                (wire_id, deepcopy(wire)) for wire_id, wire in self.circuit.wires.items()
+                if wire.from_comp == self.comp_id or wire.to_comp == self.comp_id
+            ]
+            self.circuit.remove_component(self.comp_id)
+    
+    def undo(self):
+        if self.component:
+            self.circuit.components[self.component.id] = self.component
+            for wire_id, wire in self.related_wires:
+                self.circuit.wires[wire_id] = wire
+
+
+class AddWireCommand(Command):
+    """配線追加コマンド"""
+    
+    def __init__(self, circuit: 'Circuit', wire: 'Wire'):
+        self.circuit = circuit
+        self.wire = wire
+    
+    def execute(self):
+        self.circuit.wires[self.wire.wire_id] = self.wire
+    
+    def undo(self):
+        if self.wire.wire_id in self.circuit.wires:
+            del self.circuit.wires[self.wire.wire_id]
+
+
+class RemoveWireCommand(Command):
+    """配線削除コマンド"""
+    
+    def __init__(self, circuit: 'Circuit', wire_id: str):
+        self.circuit = circuit
+        self.wire_id = wire_id
+        self.wire = None
+    
+    def execute(self):
+        if self.wire_id in self.circuit.wires:
+            self.wire = deepcopy(self.circuit.wires[self.wire_id])
+            del self.circuit.wires[self.wire_id]
+    
+    def undo(self):
+        if self.wire:
+            self.circuit.wires[self.wire_id] = self.wire
+
+
+class MoveComponentCommand(Command):
+    """コンポーネント移動コマンド"""
+    
+    def __init__(self, component: 'Component', old_x: float, old_y: float, new_x: float, new_y: float):
+        self.component = component
+        self.old_x = old_x
+        self.old_y = old_y
+        self.new_x = new_x
+        self.new_y = new_y
+    
+    def execute(self):
+        self.component.x = self.new_x
+        self.component.y = self.new_y
+    
+    def undo(self):
+        self.component.x = self.old_x
+        self.component.y = self.old_y
+
+
+# ========== 基底クラス定義 ==========
+class Component(ABC):
+    """全てのコンポーネント(ゲート)の基底クラス"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        self.x = x
+        self.y = y
+        self.id = comp_id
+        self.inputs: List[Optional[SignalState]] = []
+        self.output: Optional[SignalState] = SignalState.UNDEFINED
+        
+    @abstractmethod
+    def compute(self) -> SignalState:
+        """出力を計算する"""
+        pass
+    
+    @abstractmethod
+    def get_type(self) -> str:
+        """コンポーネントのタイプを返す"""
+        pass
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "type": self.get_type(),
+            "id": self.id,
+            "x": self.x,
+            "y": self.y
+        }
+    
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> 'Component':
+        """辞書からコンポーネントを生成"""
+        gate_type = data["type"]
+        x, y = data["x"], data["y"]
+        comp_id = data["id"]
+        
+        gate_classes = {
+            "AND": ANDGate,
+            "OR": ORGate,
+            "NOT": NOTGate,
+            "NAND": NANDGate,
+            "NOR": NORGate,
+            "XOR": XORGate,
+            "XNOR": XNORGate,
+            "INPUT": InputSource,
+            "OUTPUT": OutputDisplay
+        }
+        
+        if gate_type in gate_classes:
+            return gate_classes[gate_type](x, y, comp_id)
+        else:
+            raise ValueError(f"Unknown gate type: {gate_type}")
+
+
+# ========== 論理ゲート実装 ==========
+class LogicGate(Component):
+    """論理ゲートの基底クラス"""
+    
+    def __init__(self, x: float, y: float, comp_id: str, num_inputs: int):
+        super().__init__(x, y, comp_id)
+        self.inputs = [SignalState.UNDEFINED] * num_inputs
+
+
+class ANDGate(LogicGate):
+    """ANDゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 2)
+    
+    def compute(self) -> SignalState:
+        if SignalState.UNDEFINED in self.inputs:
+            self.output = SignalState.UNDEFINED
+        else:
+            self.output = SignalState.HIGH if all(inp == SignalState.HIGH for inp in self.inputs) else SignalState.LOW
+        return self.output
+    
+    def get_type(self) -> str:
+        return "AND"
+
+
+class ORGate(LogicGate):
+    """ORゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 2)
+    
+    def compute(self) -> SignalState:
+        if SignalState.UNDEFINED in self.inputs:
+            self.output = SignalState.UNDEFINED
+        else:
+            self.output = SignalState.HIGH if any(inp == SignalState.HIGH for inp in self.inputs) else SignalState.LOW
+        return self.output
+    
+    def get_type(self) -> str:
+        return "OR"
+
+
+class NOTGate(LogicGate):
+    """NOTゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 1)
+    
+    def compute(self) -> SignalState:
+        if self.inputs[0] == SignalState.UNDEFINED:
+            self.output = SignalState.UNDEFINED
+        else:
+            self.output = SignalState.LOW if self.inputs[0] == SignalState.HIGH else SignalState.HIGH
+        return self.output
+    
+    def get_type(self) -> str:
+        return "NOT"
+
+
+class NANDGate(LogicGate):
+    """NANDゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 2)
+    
+    def compute(self) -> SignalState:
+        if SignalState.UNDEFINED in self.inputs:
+            self.output = SignalState.UNDEFINED
+        else:
+            self.output = SignalState.LOW if all(inp == SignalState.HIGH for inp in self.inputs) else SignalState.HIGH
+        return self.output
+    
+    def get_type(self) -> str:
+        return "NAND"
+
+
+class NORGate(LogicGate):
+    """NORゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 2)
+    
+    def compute(self) -> SignalState:
+        if SignalState.UNDEFINED in self.inputs:
+            self.output = SignalState.UNDEFINED
+        else:
+            self.output = SignalState.LOW if any(inp == SignalState.HIGH for inp in self.inputs) else SignalState.HIGH
+        return self.output
+    
+    def get_type(self) -> str:
+        return "NOR"
+
+
+class XORGate(LogicGate):
+    """XORゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 2)
+    
+    def compute(self) -> SignalState:
+        if SignalState.UNDEFINED in self.inputs:
+            self.output = SignalState.UNDEFINED
+        else:
+            high_count = sum(1 for inp in self.inputs if inp == SignalState.HIGH)
+            self.output = SignalState.HIGH if high_count == 1 else SignalState.LOW
+        return self.output
+    
+    def get_type(self) -> str:
+        return "XOR"
+
+
+class XNORGate(LogicGate):
+    """XNORゲート"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id, 2)
+    
+    def compute(self) -> SignalState:
+        if SignalState.UNDEFINED in self.inputs:
+            self.output = SignalState.UNDEFINED
+        else:
+            high_count = sum(1 for inp in self.inputs if inp == SignalState.HIGH)
+            self.output = SignalState.LOW if high_count == 1 else SignalState.HIGH
+        return self.output
+    
+    def get_type(self) -> str:
+        return "XNOR"
+
+
+class InputSource(Component):
+    """入力ソース"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id)
+        self.output = SignalState.LOW
+    
+    def compute(self) -> SignalState:
+        return self.output
+    
+    def toggle(self):
+        """入力を切り替える"""
+        self.output = SignalState.HIGH if self.output == SignalState.LOW else SignalState.LOW
+    
+    def set_state(self, state: SignalState):
+        """状態を設定する"""
+        self.output = state
+    
+    def get_type(self) -> str:
+        return "INPUT"
+
+
+class OutputDisplay(Component):
+    """出力ディスプレイ"""
+    
+    def __init__(self, x: float, y: float, comp_id: str):
+        super().__init__(x, y, comp_id)
+        self.inputs = [SignalState.UNDEFINED]
+    
+    def compute(self) -> SignalState:
+        self.output = self.inputs[0]
+        return self.output
+    
+    def get_type(self) -> str:
+        return "OUTPUT"
+
+
+# ========== 配線クラス ==========
+@dataclass
+class Wire:
+    """配線を表すクラス"""
+    wire_id: str
+    from_comp: str  # 出力元コンポーネントID
+    to_comp: str    # 入力先コンポーネントID
+    to_input_index: int  # 入力先のインデックス
+    points: List[Tuple[float, float]] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "id": self.wire_id,
+            "from": self.from_comp,
+            "to": self.to_comp,
+            "to_input_index": self.to_input_index,
+            "points": self.points
+        }
+    
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> 'Wire':
+        """辞書から配線を生成"""
+        return Wire(
+            wire_id=data["id"],
+            from_comp=data["from"],
+            to_comp=data["to"],
+            to_input_index=data["to_input_index"],
+            points=data.get("points", [])
+        )
+
+
+# ========== シミュレーション履歴クラス ==========
+@dataclass
+class SimulationStep:
+    """シミュレーションの1ステップを表すクラス"""
+    step_number: int
+    component_states: Dict[str, SignalState]  # {comp_id: output_state}
+    timestamp: float = 0.0
+
+
+# ========== 回路クラス ==========
+class Circuit:
+    """回路全体を管理するクラス"""
+    
+    def __init__(self, circuit_type: CircuitType = CircuitType.LOGIC):
+        self.circuit_type = circuit_type
+        self.components: Dict[str, Component] = {}
+        self.wires: Dict[str, Wire] = {}
+        self.next_comp_id = 1
+        self.next_wire_id = 1
+        self.simulation_history: List[SimulationStep] = []
+        self.current_step = 0
+    
+    def add_component(self, component: Component) -> str:
+        """コンポーネントを追加"""
+        self.components[component.id] = component
+        return component.id
+    
+    def remove_component(self, comp_id: str):
+        """コンポーネントを削除"""
+        # 関連する配線も削除
+        wires_to_remove = [
+            wire_id for wire_id, wire in self.wires.items()
+            if wire.from_comp == comp_id or wire.to_comp == comp_id
+        ]
+        for wire_id in wires_to_remove:
+            del self.wires[wire_id]
+        
+        if comp_id in self.components:
+            del self.components[comp_id]
+    
+    def add_wire(self, wire: Wire) -> str:
+        """配線を追加"""
+        self.wires[wire.wire_id] = wire
+        return wire.wire_id
+    
+    def remove_wire(self, wire_id: str):
+        """配線を削除"""
+        if wire_id in self.wires:
+            del self.wires[wire_id]
+    
+    def simulate(self, step_by_step: bool = False):
+        """シミュレーションを実行"""
+        # トポロジカルソートを行い、依存関係を解決
+        visited = set()
+        processing = set()
+        order = []
+        
+        def visit(comp_id: str):
+            """深さ優先探索でトポロジカルソート"""
+            if comp_id in visited:
+                return
+            if comp_id in processing:
+                # 循環参照を検出
+                return
+            
+            processing.add(comp_id)
+            
+            # このコンポーネントへの入力配線を探す
+            for wire in self.wires.values():
+                if wire.to_comp == comp_id:
+                    visit(wire.from_comp)
+            
+            processing.remove(comp_id)
+            visited.add(comp_id)
+            order.append(comp_id)
+        
+        # 全てのコンポーネントを訪問
+        for comp_id in self.components:
+            visit(comp_id)
+        
+        # ステップ実行の場合は履歴を初期化
+        if step_by_step:
+            self.simulation_history = []
+            self.current_step = 0
+        
+        # 計算順序に従って各コンポーネントを計算
+        for comp_id in order:
+            comp = self.components[comp_id]
+            
+            # 入力を収集
+            for i, _ in enumerate(comp.inputs):
+                comp.inputs[i] = SignalState.UNDEFINED
+            
+            # 配線から入力を設定
+            for wire in self.wires.values():
+                if wire.to_comp == comp_id:
+                    from_comp = self.components[wire.from_comp]
+                    if wire.to_input_index < len(comp.inputs):
+                        comp.inputs[wire.to_input_index] = from_comp.output
+            
+            # 出力を計算
+            comp.compute()
+            
+            # ステップ実行の場合は履歴に記録
+            if step_by_step:
+                step_data = {comp_id: comp.output for comp_id in self.components}
+                self.simulation_history.append(
+                    SimulationStep(len(self.simulation_history), step_data)
+                )
+        
+        # 最終的な状態を履歴に追加
+        if not step_by_step:
+            step_data = {comp_id: comp.output for comp_id in self.components}
+            self.simulation_history = [SimulationStep(0, step_data)]
+    
+    def get_next_comp_id(self) -> str:
+        """次のコンポーネントIDを生成"""
+        comp_id = f"comp_{self.next_comp_id}"
+        self.next_comp_id += 1
+        return comp_id
+    
+    def get_next_wire_id(self) -> str:
+        """次の配線IDを生成"""
+        wire_id = f"wire_{self.next_wire_id}"
+        self.next_wire_id += 1
+        return wire_id
+    
+    def clear(self):
+        """回路をクリア"""
+        self.components.clear()
+        self.wires.clear()
+        self.simulation_history.clear()
+        self.next_comp_id = 1
+        self.next_wire_id = 1
+        self.current_step = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "circuit_type": self.circuit_type.value,
+            "components": [comp.to_dict() for comp in self.components.values()],
+            "wires": [wire.to_dict() for wire in self.wires.values()]
+        }
+    
+    def from_dict(self, data: Dict[str, Any]):
+        """辞書から回路を復元"""
+        self.clear()
+        self.circuit_type = CircuitType(data.get("circuit_type", "logic"))
+        
+        # コンポーネントを復元
+        for comp_data in data.get("components", []):
+            comp = Component.from_dict(comp_data)
+            self.components[comp.id] = comp
+            
+            # IDカウンターを更新
+            if comp.id.startswith("comp_"):
+                try:
+                    num = int(comp.id.split("_")[1])
+                    self.next_comp_id = max(self.next_comp_id, num + 1)
+                except:
+                    pass
+        
+        # 配線を復元
+        for wire_data in data.get("wires", []):
+            wire = Wire.from_dict(wire_data)
+            self.wires[wire.wire_id] = wire
+            
+            # IDカウンターを更新
+            if wire.wire_id.startswith("wire_"):
+                try:
+                    num = int(wire.wire_id.split("_")[1])
+                    self.next_wire_id = max(self.next_wire_id, num + 1)
+                except:
+                    pass
+
+
+# ========== 設定管理クラス ==========
+class ConfigManager:
+    """設定を管理するクラス"""
+    
+    def __init__(self, config_path: str = "config.json"):
+        self.config_path = config_path
+        self.config = deepcopy(DEFAULT_CONFIG)
+        self.load()
+    
+    def load(self):
+        """設定を読み込む"""
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    loaded_config = json.load(f)
+                    self.config.update(loaded_config)
+                    # ショートカットキーのマージ
+                    if "shortcuts" in loaded_config:
+                        self.config["shortcuts"].update(loaded_config["shortcuts"])
+        except Exception as e:
+            print(f"設定ファイルの読み込みエラー: {e}")
+    
+    def save(self):
+        """設定を保存する"""
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"設定ファイルの保存エラー: {e}")
+    
+    def get(self, key: str, default=None):
+        """設定値を取得"""
+        return self.config.get(key, default)
+    
+    def set(self, key: str, value):
+        """設定値を設定"""
+        self.config[key] = value
+        self.save()
+    
+    def get_shortcut(self, action: str) -> str:
+        """ショートカットキーを取得"""
+        shortcuts = self.config.get("shortcuts", DEFAULT_CONFIG["shortcuts"])
+        return shortcuts.get(action, DEFAULT_CONFIG["shortcuts"].get(action, ""))
+    
+    def set_shortcut(self, action: str, key_sequence: str):
+        """ショートカットキーを設定"""
+        if "shortcuts" not in self.config:
+            self.config["shortcuts"] = {}
+        self.config["shortcuts"][action] = key_sequence
+        self.save()
+
+
+# ========== Undo/Redo マネージャー ==========
+class CommandHistory:
+    """Undo/Redo機能を管理するクラス"""
+    
+    def __init__(self, max_size: int = MAX_HISTORY):
+        self.undo_stack: deque = deque(maxlen=max_size)
+        self.redo_stack: deque = deque(maxlen=max_size)
+    
+    def execute(self, command: Command):
+        """コマンドを実行"""
+        command.execute()
+        self.undo_stack.append(command)
+        self.redo_stack.clear()  # redo スタックをクリア
+    
+    def undo(self) -> bool:
+        """元に戻す"""
+        if not self.undo_stack:
+            return False
+        command = self.undo_stack.pop()
+        command.undo()
+        self.redo_stack.append(command)
+        return True
+    
+    def redo(self) -> bool:
+        """やり直す"""
+        if not self.redo_stack:
+            return False
+        command = self.redo_stack.pop()
+        command.execute()
+        self.undo_stack.append(command)
+        return True
+    
+    def can_undo(self) -> bool:
+        """元に戻せるか"""
+        return len(self.undo_stack) > 0
+    
+    def can_redo(self) -> bool:
+        """やり直せるか"""
+        return len(self.redo_stack) > 0
+    
+    def clear(self):
+        """履歴をクリア"""
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+
+
+# ========== メインGUIアプリケーション ==========
+class CircuitSimulatorGUI:
+    """回路シミュレータのGUIクラス"""
+    
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("Circuit Simulator - 論理回路シミュレータ")
+        self.root.geometry("1600x1000")
+        
+        # 設定マネージャー
+        self.config_manager = ConfigManager()
+        
+        # コマンド履歴 (Undo/Redo)
+        self.command_history = CommandHistory()
+        
+        # 複数の回路を管理 (タブベース)
+        self.circuits: Dict[str, Circuit] = {}
+        self.current_circuit_tab = None
+        self.tab_metadata_dict = {}  # {tab_id: tab_metadata}
+        
+        # GUI状態
+        self.selected_gate_type = None
+        self.selected_component = None
+        self.dragging_component = None
+        self.drag_offset = (0, 0)
+        self.wiring_mode = False
+        self.wire_start_comp = None
+        self.wire_start_pin = None
+        self.temp_wire_line = None
+        self.wire_drag_mode = False  # D&Dでの配線モード
+        self.panning = False  # カメラパンモード
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+        
+        # ズーム状態
+        self.zoom_level = DEFAULT_ZOOM
+        
+        # ステップ実行状態
+        self.step_mode = False
+        self.current_step = 0
+        
+        # キャンバス参照
+        self.canvas = None
+        self.canvas_items = {}  # comp_id -> canvas_item_id
+        self.wire_items = {}    # wire_id -> canvas_item_id
+        
+        # UIの構築
+        self.build_ui()
+        
+        # ウィンドウを閉じる時のイベント
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # 新規回路を作成
+        self.new_tab()
+    
+    def build_ui(self):
+        """UIを構築"""
+        # メニューバー
+        self.create_menu()
+        
+        # メインフレーム
+        main_frame = ttk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 左側: ツールパレット
+        tool_frame = ttk.LabelFrame(main_frame, text="ツール", width=200)
+        tool_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+        tool_frame.pack_propagate(False)
+        
+        self.create_tool_palette(tool_frame)
+        
+        # 右側: メインコンテンツ
+        right_frame = ttk.Frame(main_frame)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # ノートブック (タブ管理)
+        self.notebook = ttk.Notebook(right_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        
+        # コントロールパネル
+        control_frame = ttk.Frame(right_frame)
+        control_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+        
+        self.create_control_panel(control_frame)
+    
+    def create_menu(self):
+        """メニューバーを作成"""
+        menubar = Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # ファイルメニュー
+        file_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="ファイル", menu=file_menu)
+        file_menu.add_command(label="新規", command=self.new_circuit)
+        file_menu.add_command(label="新しいタブ", command=self.new_tab)
+        file_menu.add_command(label="開く...", command=self.open_circuit)
+        file_menu.add_command(label="保存", command=self.save_circuit)
+        file_menu.add_command(label="名前を付けて保存...", command=self.save_circuit_as)
+        file_menu.add_separator()
+        file_menu.add_command(label="画像としてエクスポート...", command=self.export_as_image)
+        file_menu.add_separator()
+        file_menu.add_command(label="終了", command=self.on_closing)
+        
+        # 編集メニュー
+        edit_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="編集", menu=edit_menu)
+        edit_menu.add_command(label="元に戻す", command=self.undo)
+        edit_menu.add_command(label="やり直す", command=self.redo)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="クリア", command=self.clear_canvas)
+        edit_menu.add_command(label="自動整列", command=self.auto_arrange)
+        
+        # ビューメニュー
+        view_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="ビュー", menu=view_menu)
+        view_menu.add_command(label="ズームイン", command=self.zoom_in)
+        view_menu.add_command(label="ズームアウト", command=self.zoom_out)
+        view_menu.add_command(label="100%にリセット", command=self.reset_zoom)
+        view_menu.add_separator()
+        view_menu.add_checkbutton(
+            label="グリッド表示",
+            command=self.toggle_grid,
+            variable=tk.BooleanVar(value=self.config_manager.get("grid_enabled", True))
+        )
+        
+        # シミュレーションメニュー
+        sim_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="シミュレーション", menu=sim_menu)
+        sim_menu.add_command(label="実行", command=self.run_simulation)
+        sim_menu.add_command(label="ステップ実行", command=self.toggle_step_mode)
+        sim_menu.add_command(label="次のステップ", command=self.next_step)
+        sim_menu.add_command(label="リセット", command=self.reset_simulation)
+        sim_menu.add_separator()
+        sim_menu.add_command(label="履歴表示", command=self.show_history)
+        
+        # 設定メニュー
+        settings_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="設定", menu=settings_menu)
+        settings_menu.add_command(label="ショートカットキー設定...", command=self.open_shortcut_settings)
+        settings_menu.add_separator()
+        settings_menu.add_command(label="その他の設定...", command=self.open_settings)
+        
+        # ヘルプメニュー
+        help_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="ヘルプ", menu=help_menu)
+        help_menu.add_command(label="使い方", command=self.show_help)
+        help_menu.add_command(label="バージョン情報", command=self.show_about)
+        
+        # ショートカットキーの登録
+        self.register_shortcuts()
+    
+    def register_shortcuts(self):
+        """ショートカットキーを登録"""
+        self.root.bind(self.config_manager.get_shortcut("undo"), lambda e: self.undo())
+        self.root.bind(self.config_manager.get_shortcut("redo"), lambda e: self.redo())
+        self.root.bind(self.config_manager.get_shortcut("new"), lambda e: self.new_circuit())
+        self.root.bind(self.config_manager.get_shortcut("open"), lambda e: self.open_circuit())
+        self.root.bind(self.config_manager.get_shortcut("save"), lambda e: self.save_circuit())
+        self.root.bind(self.config_manager.get_shortcut("zoom_in"), lambda e: self.zoom_in())
+        self.root.bind(self.config_manager.get_shortcut("zoom_out"), lambda e: self.zoom_out())
+        self.root.bind(self.config_manager.get_shortcut("delete"), lambda e: self.delete_selected())
+        
+        # モード切り替えのショートカット
+        self.root.bind("<Control-w>", lambda e: self.switch_to_wire_mode())
+        self.root.bind("<Escape>", lambda e: self.switch_to_move_mode())
+    
+    def create_tool_palette(self, parent):
+        """ツールパレットを作成"""
+        # タイトル
+        ttk.Label(parent, text="論理ゲート", font=("Arial", 10, "bold")).pack(pady=5)
+        
+        # ゲートボタン
+        gates = [
+            ("AND", "AND"),
+            ("OR", "OR"),
+            ("NOT", "NOT"),
+            ("NAND", "NAND"),
+            ("NOR", "NOR"),
+            ("XOR", "XOR"),
+            ("XNOR", "XNOR"),
+        ]
+        
+        for gate_name, gate_label in gates:
+            btn = ttk.Button(
+                parent,
+                text=gate_label,
+                command=lambda g=gate_name: self.select_gate(g)
+            )
+            btn.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        
+        # 入出力
+        ttk.Label(parent, text="入出力", font=("Arial", 10, "bold")).pack(pady=5)
+        
+        ttk.Button(
+            parent,
+            text="入力",
+            command=lambda: self.select_gate("INPUT")
+        ).pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Button(
+            parent,
+            text="出力",
+            command=lambda: self.select_gate("OUTPUT")
+        ).pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        
+        # ツール
+        ttk.Label(parent, text="ツール", font=("Arial", 10, "bold")).pack(pady=5)
+        
+        # モード選択（ラジオボタン）
+        self.tool_mode_var = tk.StringVar(value="move")
+        
+        ttk.Radiobutton(
+            parent,
+            text="移動モード (ESC)",
+            variable=self.tool_mode_var,
+            value="move",
+            command=self.on_mode_change
+        ).pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Radiobutton(
+            parent,
+            text="配線モード (Ctrl+W)",
+            variable=self.tool_mode_var,
+            value="wire",
+            command=self.on_mode_change
+        ).pack(fill=tk.X, padx=5, pady=2)
+        
+        # 選択中のゲート表示
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Label(parent, text="選択中:", font=("Arial", 9)).pack()
+        self.selected_gate_label = ttk.Label(parent, text="移動モード", font=("Arial", 9, "bold"))
+        self.selected_gate_label.pack()
+        
+        # ズームレベル表示
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Label(parent, text="ズーム:", font=("Arial", 9)).pack()
+        self.zoom_level_label = ttk.Label(parent, text="100%", font=("Arial", 9, "bold"))
+        self.zoom_level_label.pack()
+    
+    def create_control_panel(self, parent):
+        """コントロールパネルを作成"""
+        ttk.Button(parent, text="シミュレーション実行", command=self.run_simulation).pack(side=tk.LEFT, padx=5)
+        ttk.Button(parent, text="リセット", command=self.reset_simulation).pack(side=tk.LEFT, padx=5)
+        ttk.Button(parent, text="ステップ実行", command=self.toggle_step_mode).pack(side=tk.LEFT, padx=5)
+        ttk.Button(parent, text="次へ", command=self.next_step).pack(side=tk.LEFT, padx=5)
+        ttk.Button(parent, text="履歴表示", command=self.show_history).pack(side=tk.LEFT, padx=5)
+        ttk.Button(parent, text="クリア", command=self.clear_canvas).pack(side=tk.LEFT, padx=5)
+        
+        # ステータスラベル
+        self.status_label = ttk.Label(parent, text="準備完了", relief=tk.SUNKEN)
+        self.status_label.pack(side=tk.RIGHT, padx=5)
+    
+    def new_tab(self):
+        """新しいタブを作成"""
+        tab_index = len(self.circuits)
+        tab_id = f"circuit_{tab_index}"
+        self.circuits[tab_id] = Circuit(CircuitType.LOGIC)
+        
+        # タブフレームを作成
+        tab_frame = ttk.Frame(self.notebook)
+        self.notebook.add(tab_frame, text=f"回路 {tab_index + 1}")
+        
+        # キャンバスフレーム
+        canvas_frame = ttk.Frame(tab_frame)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # キャンバス
+        canvas = tk.Canvas(
+            canvas_frame,
+            bg="white",
+            width=self.config_manager.get("canvas_width", CANVAS_WIDTH),
+            height=self.config_manager.get("canvas_height", CANVAS_HEIGHT)
+        )
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # スクロールバー
+        v_scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar = ttk.Scrollbar(tab_frame, orient=tk.HORIZONTAL, command=canvas.xview)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        canvas.configure(
+            yscrollcommand=v_scrollbar.set,
+            xscrollcommand=h_scrollbar.set,
+            scrollregion=(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+        )
+        
+        # キャンバスイベント
+        canvas.bind("<Button-1>", self.on_canvas_click)
+        canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+        canvas.bind("<Button-3>", self.on_canvas_right_click)
+        canvas.bind("<Motion>", self.on_canvas_motion)
+        canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        canvas.bind("<Button-4>", self.on_mouse_wheel)  # Linux
+        canvas.bind("<Button-5>", self.on_mouse_wheel)  # Linux
+        
+        # タブメタデータを保存
+        self.tab_metadata_dict[tab_id] = {
+            "canvas": canvas,
+            "canvas_items": {},
+            "wire_items": {},
+            "v_scrollbar": v_scrollbar,
+            "h_scrollbar": h_scrollbar
+        }
+        
+        # グリッドを描画
+        if self.config_manager.get("grid_enabled", True):
+            self.draw_grid(canvas)
+        
+        # 現在のタブを選択
+        self.notebook.select(len(self.notebook.tabs()) - 1)
+        self.current_circuit_tab = tab_id
+        self.canvas = canvas
+        self.canvas_items = self.tab_metadata_dict[tab_id]["canvas_items"]
+        self.wire_items = self.tab_metadata_dict[tab_id]["wire_items"]
+        self.command_history.clear()
+        
+        self.update_status(f"新しいタブ '{self.notebook.tab(self.notebook.select(), 'text')}' を作成しました")
+    
+    def on_tab_changed(self, event):
+        """タブが変更された時"""
+        tab_index = self.notebook.index(self.notebook.select())
+        tab_id = f"circuit_{tab_index}"
+        
+        if tab_id in self.circuits:
+            self.current_circuit_tab = tab_id
+            metadata = self.tab_metadata_dict[tab_id]
+            self.canvas = metadata["canvas"]
+            self.canvas_items = metadata["canvas_items"]
+            self.wire_items = metadata["wire_items"]
+            self.update_status(f"タブを切り替えました")
+    
+    def draw_grid(self, canvas):
+        """グリッドを描画"""
+        for x in range(0, CANVAS_WIDTH, GRID_SIZE):
+            canvas.create_line(x, 0, x, CANVAS_HEIGHT, fill="lightgray", tags="grid")
+        for y in range(0, CANVAS_HEIGHT, GRID_SIZE):
+            canvas.create_line(0, y, CANVAS_WIDTH, y, fill="lightgray", tags="grid")
+        
+        # グリッドを背面に
+        canvas.tag_lower("grid")
+    
+    def toggle_grid(self):
+        """グリッド表示を切り替え"""
+        if self.canvas.find_withtag("grid"):
+            self.canvas.delete("grid")
+            self.config_manager.set("grid_enabled", False)
+        else:
+            self.draw_grid(self.canvas)
+            self.config_manager.set("grid_enabled", True)
+    
+    def select_gate(self, gate_type: str):
+        """ゲートを選択"""
+        self.selected_gate_type = gate_type
+        self.selected_gate_label.config(text=gate_type)
+        self.tool_mode_var.set("")
+        self.wiring_mode = False
+        self.update_status(f"{gate_type}ゲートを選択しました。キャンバスをクリックして配置してください。")
+    
+    def on_mode_change(self):
+        """モード変更時の処理"""
+        mode = self.tool_mode_var.get()
+        self.selected_gate_type = None
+        
+        if mode == "wire":
+            self.wiring_mode = True
+            self.selected_gate_label.config(text="配線モード")
+            self.update_status("配線モード: 出力ピンをクリックして、次に入力ピンをクリックしてください。")
+        else:  # move
+            self.wiring_mode = False
+            self.selected_gate_label.config(text="移動モード")
+            self.update_status("移動モード: コンポーネントをドラッグして移動できます。")
+        
+        # 配線開始状態をクリア
+        self.wire_start_comp = None
+        self.wire_start_pin = None
+        if self.temp_wire_line:
+            self.canvas.delete(self.temp_wire_line)
+            self.temp_wire_line = None
+    
+    def toggle_wire_mode(self):
+        """配線モードをトグル (旧関数 - 互換性のため保持)"""
+        if self.tool_mode_var.get() == "wire":
+            self.tool_mode_var.set("move")
+        else:
+            self.tool_mode_var.set("wire")
+        self.on_mode_change()
+    
+    def switch_to_wire_mode(self):
+        """配線モードに切り替え"""
+        self.tool_mode_var.set("wire")
+        self.on_mode_change()
+    
+    def switch_to_move_mode(self):
+        """移動モードに切り替え"""
+        self.tool_mode_var.set("move")
+        self.on_mode_change()
+    
+    def snap_to_grid(self, x: float, y: float) -> Tuple[float, float]:
+        """座標をグリッドにスナップ"""
+        if self.config_manager.get("snap_to_grid", True):
+            x = round(x / GRID_SIZE) * GRID_SIZE
+            y = round(y / GRID_SIZE) * GRID_SIZE
+        return x, y
+    
+    def zoom_in(self):
+        """ズームイン"""
+        if self.zoom_level < MAX_ZOOM:
+            old_zoom = self.zoom_level
+            self.zoom_level = min(self.zoom_level + ZOOM_STEP, MAX_ZOOM)
+            self.apply_zoom(old_zoom, self.zoom_level)
+            self.update_zoom_display()
+    
+    def zoom_out(self):
+        """ズームアウト"""
+        if self.zoom_level > MIN_ZOOM:
+            old_zoom = self.zoom_level
+            self.zoom_level = max(self.zoom_level - ZOOM_STEP, MIN_ZOOM)
+            self.apply_zoom(old_zoom, self.zoom_level)
+            self.update_zoom_display()
+    
+    def reset_zoom(self):
+        """ズームをリセット"""
+        old_zoom = self.zoom_level
+        self.zoom_level = DEFAULT_ZOOM
+        self.apply_zoom(old_zoom, self.zoom_level)
+        self.update_zoom_display()
+    
+    def apply_zoom(self, old_zoom: float, new_zoom: float):
+        """ズームを適用"""
+        if old_zoom == new_zoom:
+            return
+        
+        # スケール倍率を計算
+        scale_factor = new_zoom / old_zoom
+        
+        # キャンバス中心を取得
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        center_x = canvas_width / 2
+        center_y = canvas_height / 2
+        
+        # すべてのアイテムをスケーリング
+        self.canvas.scale("all", center_x, center_y, scale_factor, scale_factor)
+        
+        # コンポーネントの座標も更新
+        circuit = self.circuits.get(self.current_circuit_tab)
+        if circuit:
+            for comp in circuit.components.values():
+                # 中心からの相対位置を計算してスケーリング
+                dx = comp.x - center_x
+                dy = comp.y - center_y
+                comp.x = center_x + dx * scale_factor
+                comp.y = center_y + dy * scale_factor
+    
+    def on_mouse_wheel(self, event):
+        """マウスホイール操作 (ズーム)"""
+        if event.num == 5 or event.delta < 0:
+            self.zoom_out()
+        elif event.num == 4 or event.delta > 0:
+            self.zoom_in()
+    
+    def update_zoom_display(self):
+        """ズーム表示を更新"""
+        percentage = int(self.zoom_level * 100)
+        self.zoom_level_label.config(text=f"{percentage}%")
+        self.update_status(f"ズームレベル: {percentage}%")
+    
+    def on_canvas_click(self, event):
+        """キャンバスクリック時の処理"""
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        
+        if self.wiring_mode:
+            self.handle_wiring_click(x, y)
+        elif self.selected_gate_type:
+            self.place_component(x, y)
+        elif self.tool_mode_var.get() == "move":
+            # 移動モード: コンポーネントをクリックしたか確認
+            comp_clicked = self.handle_component_selection(x, y)
+            
+            if not comp_clicked:
+                # コンポーネントがない場合、カメラパン開始
+                self.panning = True
+                self.pan_start_x = event.x
+                self.pan_start_y = event.y
+                self.canvas.config(cursor="fleur")  # カーソル変更
+        else:
+            # コンポーネントをクリックしたか確認（ピンより優先）
+            comp_clicked = self.handle_component_selection(x, y)
+            
+            if not comp_clicked:
+                # コンポーネントがない場合、ピンをチェック
+                pin_info = self.find_pin_at_position(x, y)
+                if pin_info and pin_info[1] == "output":
+                    self.wire_start_comp = pin_info[0]
+                    self.wire_drag_mode = True
+                    self.update_status("出力ピンから配線をドラッグしてください。")
+                else:
+                    # 何もない場所をクリック → カメラパン開始
+                    self.panning = True
+                    self.pan_start_x = event.x
+                    self.pan_start_y = event.y
+                    self.canvas.config(cursor="fleur")  # カーソル変更
+    
+    def place_component(self, x: float, y: float):
+        """コンポーネントを配置"""
+        x, y = self.snap_to_grid(x, y)
+        
+        circuit = self.circuits[self.current_circuit_tab]
+        comp_id = circuit.get_next_comp_id()
+        
+        # コンポーネントを作成
+        gate_classes = {
+            "AND": ANDGate,
+            "OR": ORGate,
+            "NOT": NOTGate,
+            "NAND": NANDGate,
+            "NOR": NORGate,
+            "XOR": XORGate,
+            "XNOR": XNORGate,
+            "INPUT": InputSource,
+            "OUTPUT": OutputDisplay
+        }
+        
+        if self.selected_gate_type in gate_classes:
+            comp = gate_classes[self.selected_gate_type](x, y, comp_id)
+            
+            # コマンド履歴に追加
+            cmd = AddComponentCommand(circuit, comp)
+            self.command_history.execute(cmd)
+            
+            self.draw_component(comp)
+            self.update_status(f"{self.selected_gate_type}ゲートを配置しました (ID: {comp_id})")
+    
+    def draw_component(self, comp: Component):
+        """コンポーネントを描画"""
+        x, y = comp.x, comp.y
+        gate_type = comp.get_type()
+        
+        # ゲートの矩形
+        rect = self.canvas.create_rectangle(
+            x - GATE_WIDTH/2, y - GATE_HEIGHT/2,
+            x + GATE_WIDTH/2, y + GATE_HEIGHT/2,
+            fill="lightblue", outline="black", width=2,
+            tags=(f"comp_{comp.id}", "component")
+        )
+        
+        # ゲート名のテキスト
+        text = self.canvas.create_text(
+            x, y,
+            text=gate_type,
+            font=("Arial", 12, "bold"),
+            tags=(f"comp_{comp.id}", "component")
+        )
+        
+        # 入力ピン
+        num_inputs = len(comp.inputs)
+        for i in range(num_inputs):
+            pin_y = y - GATE_HEIGHT/2 + GATE_HEIGHT * (i + 1) / (num_inputs + 1)
+            pin = self.canvas.create_oval(
+                x - GATE_WIDTH/2 - PIN_RADIUS, pin_y - PIN_RADIUS,
+                x - GATE_WIDTH/2 + PIN_RADIUS, pin_y + PIN_RADIUS,
+                fill="green", outline="darkgreen",
+                tags=(f"comp_{comp.id}", "input_pin", f"pin_{comp.id}_in_{i}")
+            )
+        
+        # 出力ピン
+        pin = self.canvas.create_oval(
+            x + GATE_WIDTH/2 - PIN_RADIUS, y - PIN_RADIUS,
+            x + GATE_WIDTH/2 + PIN_RADIUS, y + PIN_RADIUS,
+            fill="red", outline="darkred",
+            tags=(f"comp_{comp.id}", "output_pin", f"pin_{comp.id}_out")
+        )
+        
+        self.canvas_items[comp.id] = rect
+    
+    def handle_component_selection(self, x: float, y: float) -> bool:
+        """コンポーネントの選択処理
+        
+        Returns:
+            bool: コンポーネントが選択された場合True
+        """
+        # クリック位置からコンポーネントを検索
+        circuit = self.circuits.get(self.current_circuit_tab)
+        if not circuit:
+            return False
+        
+        for comp_id, comp in circuit.components.items():
+            # コンポーネントの矩形内をクリックしたかチェック
+            if (comp.x - GATE_WIDTH/2 <= x <= comp.x + GATE_WIDTH/2 and
+                comp.y - GATE_HEIGHT/2 <= y <= comp.y + GATE_HEIGHT/2):
+                
+                # 入力ソースの場合はトグル
+                if isinstance(comp, InputSource):
+                    comp.toggle()
+                    self.update_component_display(comp)
+                    self.update_status(f"入力を切り替えました: {comp.output.name}")
+                    return True
+                else:
+                    # 通常のコンポーネントはドラッグ準備
+                    self.selected_component = comp
+                    self.dragging_component = comp
+                    self.drag_offset = (comp.x - x, comp.y - y)
+                    self.update_status(f"コンポーネント選択: {comp.get_type()} (ID: {comp_id})")
+                    return True
+        
+        return False
+    
+    def on_canvas_drag(self, event):
+        """キャンバスドラッグ時の処理"""
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        
+        if self.panning:
+            # カメラをパン（移動）- マウスの動きと同じだけキャンバスを移動
+            dx = event.x - self.pan_start_x
+            dy = event.y - self.pan_start_y
+            
+            # すべてのアイテムを移動
+            self.canvas.move("all", dx, dy)
+            
+            # コンポーネントの座標も更新
+            circuit = self.circuits.get(self.current_circuit_tab)
+            if circuit:
+                for comp in circuit.components.values():
+                    comp.x += dx
+                    comp.y += dy
+            
+            self.pan_start_x = event.x
+            self.pan_start_y = event.y
+        
+        elif self.dragging_component:
+            # コンポーネントを移動
+            new_x = x + self.drag_offset[0]
+            new_y = y + self.drag_offset[1]
+            new_x, new_y = self.snap_to_grid(new_x, new_y)
+            
+            dx = new_x - self.dragging_component.x
+            dy = new_y - self.dragging_component.y
+            
+            # 実際に移動した場合のみ更新
+            if dx != 0 or dy != 0:
+                self.dragging_component.x = new_x
+                self.dragging_component.y = new_y
+                
+                # キャンバス上のアイテムを移動
+                for item in self.canvas.find_withtag(f"comp_{self.dragging_component.id}"):
+                    self.canvas.move(item, dx, dy)
+                
+                # 関連する配線を更新
+                self.update_wires_for_component(self.dragging_component.id)
+        
+        elif (self.wiring_mode or self.wire_drag_mode) and self.wire_start_comp:
+            # 仮の配線を表示
+            if self.temp_wire_line:
+                self.canvas.delete(self.temp_wire_line)
+            
+            circuit = self.circuits[self.current_circuit_tab]
+            start_comp = circuit.components[self.wire_start_comp]
+            start_x = start_comp.x + GATE_WIDTH/2
+            start_y = start_comp.y
+            
+            self.temp_wire_line = self.canvas.create_line(
+                start_x, start_y, x, y,
+                fill="blue", width=2, dash=(4, 4)
+            )
+    
+    def on_canvas_release(self, event):
+        """キャンバスリリース時の処理"""
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        
+        # カメラパンモードを終了
+        if self.panning:
+            self.panning = False
+            self.canvas.config(cursor="")
+        
+        # D&D配線モードの場合
+        if self.wire_drag_mode and self.wire_start_comp:
+            pin_info = self.find_pin_at_position(x, y)
+            if pin_info and pin_info[1] == "input":
+                # 入力ピンで離した場合は配線を作成
+                comp_id, pin_type, pin_index = pin_info
+                circuit = self.circuits[self.current_circuit_tab]
+                
+                wire_id = circuit.get_next_wire_id()
+                wire = Wire(
+                    wire_id=wire_id,
+                    from_comp=self.wire_start_comp,
+                    to_comp=comp_id,
+                    to_input_index=pin_index
+                )
+                
+                cmd = AddWireCommand(circuit, wire)
+                self.command_history.execute(cmd)
+                self.draw_wire(wire)
+                self.update_status(f"配線を作成しました (ID: {wire_id})")
+            
+            # D&D配線モードをリセット
+            self.wire_drag_mode = False
+            self.wire_start_comp = None
+            if self.temp_wire_line:
+                self.canvas.delete(self.temp_wire_line)
+                self.temp_wire_line = None
+        
+        self.dragging_component = None
+    
+    def on_canvas_right_click(self, event):
+        """右クリック時の処理 (コンポーネント削除)"""
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        item = self.canvas.find_closest(x, y)[0]
+        tags = self.canvas.gettags(item)
+        
+        for tag in tags:
+            if tag.startswith("comp_"):
+                comp_id = tag.split("_")[1]
+                circuit = self.circuits[self.current_circuit_tab]
+                if comp_id in circuit.components:
+                    # 確認ダイアログ
+                    result = messagebox.askyesno(
+                        "削除確認",
+                        f"コンポーネント ({circuit.components[comp_id].get_type()}) を削除しますか?"
+                    )
+                    if result:
+                        self.remove_component(comp_id)
+                break
+    
+    def on_canvas_motion(self, event):
+        """マウス移動時の処理"""
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        
+        # カーソルの下にあるアイテムを取得
+        item = self.canvas.find_closest(x, y)[0]
+        tags = self.canvas.gettags(item)
+        
+        # ツールチップ的な情報表示
+        if "component" in tags:
+            for tag in tags:
+                if tag.startswith("comp_"):
+                    comp_id = tag.split("_")[1]
+                    circuit = self.circuits[self.current_circuit_tab]
+                    if comp_id in circuit.components:
+                        comp = circuit.components[comp_id]
+                        self.status_label.config(
+                            text=f"{comp.get_type()} | 出力: {comp.output.name if comp.output else 'N/A'}"
+                        )
+    
+    def find_pin_at_position(self, x: float, y: float, search_radius: float = 30.0) -> Optional[Tuple[str, str, int]]:
+        """指定位置にあるピンを検索
+        
+        Returns:
+            (comp_id, pin_type, pin_index) or None
+            pin_type: "output" or "input"
+            pin_index: 入力ピンのインデックス (出力ピンの場合は0)
+        """
+        circuit = self.circuits.get(self.current_circuit_tab)
+        if not circuit:
+            return None
+        
+        # 最も近いピンを記録
+        closest_pin = None
+        closest_distance = search_radius
+        
+        for comp_id, comp in circuit.components.items():
+            # 出力ピンをチェック
+            output_pin_x = comp.x + GATE_WIDTH/2
+            output_pin_y = comp.y
+            distance = math.sqrt((x - output_pin_x)**2 + (y - output_pin_y)**2)
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_pin = (comp_id, "output", 0)
+            
+            # 入力ピンをチェック
+            num_inputs = len(comp.inputs)
+            for i in range(num_inputs):
+                pin_y = comp.y - GATE_HEIGHT/2 + GATE_HEIGHT * (i + 1) / (num_inputs + 1)
+                input_pin_x = comp.x - GATE_WIDTH/2
+                input_pin_y = pin_y
+                distance = math.sqrt((x - input_pin_x)**2 + (y - input_pin_y)**2)
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_pin = (comp_id, "input", i)
+        
+        return closest_pin
+    
+    def handle_wiring_click(self, x: float, y: float):
+        """配線クリック時の処理"""
+        pin_info = self.find_pin_at_position(x, y)
+        
+        if pin_info is None:
+            # ピンが見つからない場合は配線開始をキャンセル
+            if self.wire_start_comp:
+                self.wire_start_comp = None
+                self.wire_start_pin = None
+                if self.temp_wire_line:
+                    self.canvas.delete(self.temp_wire_line)
+                    self.temp_wire_line = None
+                self.update_status("配線をキャンセルしました。")
+            return
+        
+        comp_id, pin_type, pin_index = pin_info
+        
+        if pin_type == "output":
+            # 出力ピンをクリック
+            self.wire_start_comp = comp_id
+            self.wire_start_pin = "out"
+            self.update_status("出力ピンを選択しました。次に入力ピンをクリックしてください。")
+        
+        elif pin_type == "input" and self.wire_start_comp:
+            # 入力ピンをクリック (配線完成)
+            circuit = self.circuits[self.current_circuit_tab]
+            
+            # 配線を作成
+            wire_id = circuit.get_next_wire_id()
+            wire = Wire(
+                wire_id=wire_id,
+                from_comp=self.wire_start_comp,
+                to_comp=comp_id,
+                to_input_index=pin_index
+            )
+            
+            # コマンド履歴に追加
+            cmd = AddWireCommand(circuit, wire)
+            self.command_history.execute(cmd)
+            
+            self.draw_wire(wire)
+            
+            # リセット
+            self.wire_start_comp = None
+            self.wire_start_pin = None
+            if self.temp_wire_line:
+                self.canvas.delete(self.temp_wire_line)
+                self.temp_wire_line = None
+            
+            self.update_status(f"配線を作成しました (ID: {wire_id})")
+    
+    def draw_wire(self, wire: Wire):
+        """配線を描画"""
+        circuit = self.circuits[self.current_circuit_tab]
+        from_comp = circuit.components[wire.from_comp]
+        to_comp = circuit.components[wire.to_comp]
+        
+        # 出力ピンの位置
+        start_x = from_comp.x + GATE_WIDTH/2
+        start_y = from_comp.y
+        
+        # 入力ピンの位置
+        num_inputs = len(to_comp.inputs)
+        pin_y = to_comp.y - GATE_HEIGHT/2 + GATE_HEIGHT * (wire.to_input_index + 1) / (num_inputs + 1)
+        end_x = to_comp.x - GATE_WIDTH/2
+        end_y = pin_y
+        
+        # 配線を描画 (シンプルな直線)
+        line = self.canvas.create_line(
+            start_x, start_y, end_x, end_y,
+            fill="black", width=2,
+            tags=(f"wire_{wire.wire_id}", "wire")
+        )
+        
+        self.wire_items[wire.wire_id] = line
+    
+    def update_wires_for_component(self, comp_id: str):
+        """コンポーネントに関連する配線を更新"""
+        circuit = self.circuits[self.current_circuit_tab]
+        for wire_id, wire in circuit.wires.items():
+            if wire.from_comp == comp_id or wire.to_comp == comp_id:
+                # 配線を再描画
+                if wire_id in self.wire_items:
+                    self.canvas.delete(self.wire_items[wire_id])
+                self.draw_wire(wire)
+    
+    def remove_component(self, comp_id: str):
+        """コンポーネントを削除"""
+        circuit = self.circuits[self.current_circuit_tab]
+        
+        # キャンバスから削除
+        for item in self.canvas.find_withtag(f"comp_{comp_id}"):
+            self.canvas.delete(item)
+        
+        # 関連する配線を削除
+        wires_to_remove = [
+            wire_id for wire_id, wire in circuit.wires.items()
+            if wire.from_comp == comp_id or wire.to_comp == comp_id
+        ]
+        for wire_id in wires_to_remove:
+            if wire_id in self.wire_items:
+                self.canvas.delete(self.wire_items[wire_id])
+                del self.wire_items[wire_id]
+        
+        # コマンド履歴に追加
+        cmd = RemoveComponentCommand(circuit, comp_id)
+        self.command_history.execute(cmd)
+        
+        if comp_id in self.canvas_items:
+            del self.canvas_items[comp_id]
+        
+        self.update_status(f"コンポーネントを削除しました (ID: {comp_id})")
+    
+    def delete_selected(self):
+        """選択中のコンポーネントを削除"""
+        if self.selected_component:
+            self.remove_component(self.selected_component.id)
+            self.selected_component = None
+    
+    def update_component_display(self, comp: Component):
+        """コンポーネントの表示を更新"""
+        # 入力ソースの色を変更
+        if isinstance(comp, InputSource):
+            for item in self.canvas.find_withtag(f"comp_{comp.id}"):
+                if self.canvas.type(item) == "rectangle":
+                    color = "yellow" if comp.output == SignalState.HIGH else "lightblue"
+                    self.canvas.itemconfig(item, fill=color)
+    
+    def toggle_step_mode(self):
+        """ステップ実行モードをトグル"""
+        self.step_mode = not self.step_mode
+        if self.step_mode:
+            circuit = self.circuits[self.current_circuit_tab]
+            circuit.simulate(step_by_step=True)
+            self.current_step = 0
+            self.update_all_displays()
+            self.update_status("ステップ実行モード: 有効")
+        else:
+            self.update_status("ステップ実行モード: 無効")
+    
+    def next_step(self):
+        """次のステップに進む"""
+        if not self.step_mode:
+            messagebox.showwarning("警告", "まずステップ実行モードを有効にしてください")
+            return
+        
+        circuit = self.circuits[self.current_circuit_tab]
+        if self.current_step < len(circuit.simulation_history) - 1:
+            self.current_step += 1
+            self.update_all_displays()
+            self.update_status(f"ステップ: {self.current_step + 1}")
+        else:
+            messagebox.showinfo("情報", "最後のステップです")
+    
+    def run_simulation(self):
+        """シミュレーションを実行"""
+        try:
+            circuit = self.circuits[self.current_circuit_tab]
+            circuit.simulate()
+            self.update_all_displays()
+            self.update_status("シミュレーションを実行しました。")
+            messagebox.showinfo("シミュレーション完了", "シミュレーションが正常に完了しました。")
+        except Exception as e:
+            messagebox.showerror("シミュレーションエラー", f"エラーが発生しました:\n{str(e)}")
+    
+    def reset_simulation(self):
+        """シミュレーションをリセット"""
+        circuit = self.circuits[self.current_circuit_tab]
+        for comp in circuit.components.values():
+            if isinstance(comp, InputSource):
+                comp.set_state(SignalState.LOW)
+            comp.output = SignalState.UNDEFINED
+        
+        self.step_mode = False
+        self.current_step = 0
+        self.update_all_displays()
+        self.update_status("シミュレーションをリセットしました。")
+    
+    def update_all_displays(self):
+        """全てのコンポーネントの表示を更新"""
+        circuit = self.circuits[self.current_circuit_tab]
+        for comp in circuit.components.values():
+            self.update_component_display(comp)
+            
+            # 出力ディスプレイの表示を更新
+            if isinstance(comp, OutputDisplay):
+                for item in self.canvas.find_withtag(f"comp_{comp.id}"):
+                    if self.canvas.type(item) == "rectangle":
+                        if comp.output == SignalState.HIGH:
+                            self.canvas.itemconfig(item, fill="lime")
+                        elif comp.output == SignalState.LOW:
+                            self.canvas.itemconfig(item, fill="gray")
+                        else:
+                            self.canvas.itemconfig(item, fill="lightblue")
+        
+        # 配線の色も更新
+        for wire_id, wire in circuit.wires.items():
+            from_comp = circuit.components[wire.from_comp]
+            if wire_id in self.wire_items:
+                if from_comp.output == SignalState.HIGH:
+                    self.canvas.itemconfig(self.wire_items[wire_id], fill="red", width=3)
+                elif from_comp.output == SignalState.LOW:
+                    self.canvas.itemconfig(self.wire_items[wire_id], fill="blue", width=2)
+                else:
+                    self.canvas.itemconfig(self.wire_items[wire_id], fill="gray", width=2)
+    
+    def show_history(self):
+        """シミュレーション履歴を表示"""
+        circuit = self.circuits[self.current_circuit_tab]
+        if not circuit.simulation_history:
+            messagebox.showinfo("情報", "シミュレーション履歴がありません")
+            return
+        
+        # 履歴表示ウィンドウを作成
+        history_window = tk.Toplevel(self.root)
+        history_window.title("シミュレーション履歴")
+        history_window.geometry("600x400")
+        
+        # ツリービューで表示
+        tree = ttk.Treeview(history_window, columns=("コンポーネント", "状態"), height=15)
+        tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        tree.column("#0", width=100, heading="ステップ")
+        tree.column("コンポーネント", width=200)
+        tree.column("状態", width=100)
+        
+        tree.heading("#0", text="ステップ")
+        tree.heading("コンポーネント", text="コンポーネント")
+        tree.heading("状態", text="状態")
+        
+        # 履歴データを追加
+        for step in circuit.simulation_history:
+            step_text = f"Step {step.step_number}"
+            parent = tree.insert("", "end", text=step_text)
+            for comp_id, state in step.component_states.items():
+                state_text = state.name if state else "UNDEFINED"
+                tree.insert(parent, "end", text=comp_id, values=(comp_id, state_text))
+    
+    def clear_canvas(self):
+        """キャンバスをクリア"""
+        result = messagebox.askyesno("確認", "キャンバスをクリアしますか?")
+        if result:
+            circuit = self.circuits[self.current_circuit_tab]
+            self.canvas.delete("component")
+            self.canvas.delete("wire")
+            circuit.clear()
+            self.canvas_items.clear()
+            self.wire_items.clear()
+            self.command_history.clear()
+            self.update_status("キャンバスをクリアしました。")
+    
+    def auto_arrange(self):
+        """自動整列 - 配線を考慮した階層構造で配置"""
+        circuit = self.circuits[self.current_circuit_tab]
+        if not circuit.components:
+            messagebox.showinfo("情報", "配置するコンポーネントがありません。")
+            return
+        
+        # トポロジカルソートで階層を決定
+        layers = {}
+        in_degree = {comp_id: 0 for comp_id in circuit.components}
+        
+        # 各コンポーネントへの入力数をカウント
+        for wire in circuit.wires.values():
+            if wire.to_comp in in_degree:
+                in_degree[wire.to_comp] += 1
+        
+        # 入力がないノード（入力ソース等）から開始
+        queue = [comp_id for comp_id, degree in in_degree.items() if degree == 0]
+        layer_num = 0
+        
+        while queue:
+            current_layer = queue[:]
+            layers[layer_num] = current_layer
+            queue = []
+            
+            for comp_id in current_layer:
+                # このコンポーネントから出ている配線を追跡
+                for wire in circuit.wires.values():
+                    if wire.from_comp == comp_id:
+                        if wire.to_comp in in_degree:
+                            in_degree[wire.to_comp] -= 1
+                            if in_degree[wire.to_comp] == 0 and wire.to_comp not in queue:
+                                queue.append(wire.to_comp)
+            
+            layer_num += 1
+        
+        # 循環参照がある場合、残りを最終層に配置
+        remaining = [comp_id for comp_id, degree in in_degree.items() if degree > 0]
+        if remaining:
+            layers[layer_num] = remaining
+        
+        # 各層のコンポーネントを配置
+        x_offset = 100
+        y_offset = 100
+        layer_spacing = GATE_WIDTH + 120  # 層間の間隔
+        vertical_spacing = GATE_HEIGHT + 60  # 垂直間隔
+        
+        for layer_idx in sorted(layers.keys()):
+            layer_comps = layers[layer_idx]
+            x = x_offset + layer_idx * layer_spacing
+            
+            for i, comp_id in enumerate(layer_comps):
+                if comp_id in circuit.components:
+                    comp = circuit.components[comp_id]
+                    y = y_offset + i * vertical_spacing
+                    
+                    # コンポーネントを移動
+                    dx = x - comp.x
+                    dy = y - comp.y
+                    comp.x = x
+                    comp.y = y
+                    
+                    # キャンバス上のアイテムを移動
+                    for item in self.canvas.find_withtag(f"comp_{comp.id}"):
+                        self.canvas.move(item, dx, dy)
+        
+        # 配線を更新
+        for wire_id, wire in circuit.wires.items():
+            if wire_id in self.wire_items:
+                self.canvas.delete(self.wire_items[wire_id])
+            self.draw_wire(wire)
+        
+        self.update_status("コンポーネントを配線考慮型で自動整列しました。")
+    
+    def undo(self):
+        """元に戻す"""
+        if self.command_history.undo():
+            self.redraw_canvas()
+            self.update_status("元に戻しました")
+        else:
+            messagebox.showinfo("情報", "元に戻すことはできません")
+    
+    def redo(self):
+        """やり直す"""
+        if self.command_history.redo():
+            self.redraw_canvas()
+            self.update_status("やり直しました")
+        else:
+            messagebox.showinfo("情報", "やり直すことはできません")
+    
+    def redraw_canvas(self):
+        """キャンバスを再描画"""
+        circuit = self.circuits[self.current_circuit_tab]
+        
+        # キャンバスを完全にクリア（ピン、配線、コンポーネント全て）
+        self.canvas.delete("all")
+        self.canvas_items.clear()
+        self.wire_items.clear()
+        
+        # グリッドを再描画
+        if self.config_manager.get("grid_enabled", True):
+            self.draw_grid(self.canvas)
+        
+        # コンポーネントを再描画
+        for comp in circuit.components.values():
+            self.draw_component(comp)
+        
+        # 配線を再描画
+        for wire in circuit.wires.values():
+            self.draw_wire(wire)
+        
+        self.update_all_displays()
+    
+    def new_circuit(self):
+        """新規回路を作成"""
+        result = messagebox.askyesno("確認", "現在の回路を破棄して新規作成しますか?")
+        if result:
+            self.clear_canvas()
+            self.config_manager.set("last_project", "")
+            self.update_status("新規回路を作成しました。")
+    
+    def save_circuit(self):
+        """回路を保存"""
+        last_project = self.config_manager.get("last_project", "")
+        if last_project and os.path.exists(last_project):
+            self.save_to_file(last_project)
+        else:
+            self.save_circuit_as()
+    
+    def save_circuit_as(self):
+        """名前を付けて保存"""
+        project_dir = os.path.join(os.path.dirname(__file__), "project")
+        os.makedirs(project_dir, exist_ok=True)
+        
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=project_dir
+        )
+        
+        if file_path:
+            self.save_to_file(file_path)
+    
+    def save_to_file(self, file_path: str):
+        """ファイルに保存"""
+        try:
+            circuit = self.circuits[self.current_circuit_tab]
+            data = circuit.to_dict()
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            
+            self.config_manager.set("last_project", file_path)
+            self.update_status(f"回路を保存しました: {os.path.basename(file_path)}")
+            messagebox.showinfo("保存完了", "回路を保存しました。")
+        except Exception as e:
+            messagebox.showerror("保存エラー", f"保存中にエラーが発生しました:\n{str(e)}")
+    
+    def open_circuit(self):
+        """回路を開く"""
+        project_dir = os.path.join(os.path.dirname(__file__), "project")
+        os.makedirs(project_dir, exist_ok=True)
+        
+        file_path = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=project_dir
+        )
+        
+        if file_path:
+            self.load_from_file(file_path)
+    
+    def load_from_file(self, file_path: str):
+        """ファイルから読み込み"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            circuit = self.circuits[self.current_circuit_tab]
+            
+            # キャンバスをクリア
+            self.canvas.delete("component")
+            self.canvas.delete("wire")
+            self.canvas_items.clear()
+            self.wire_items.clear()
+            
+            # 回路を復元
+            circuit.from_dict(data)
+            
+            # コンポーネントを描画
+            for comp in circuit.components.values():
+                self.draw_component(comp)
+            
+            # 配線を描画
+            for wire in circuit.wires.values():
+                self.draw_wire(wire)
+            
+            self.config_manager.set("last_project", file_path)
+            self.command_history.clear()
+            self.update_status(f"回路を読み込みました: {os.path.basename(file_path)}")
+            messagebox.showinfo("読み込み完了", "回路を読み込みました。")
+        except Exception as e:
+            messagebox.showerror("読み込みエラー", f"読み込み中にエラーが発生しました:\n{str(e)}")
+    
+    def export_as_image(self):
+        """画像としてエクスポート"""
+        try:
+            from PIL import Image, ImageDraw
+            import io
+            
+            # PostScriptとして出力
+            ps = self.canvas.postscript(colormode='color')
+            
+            # 保存先を選択
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+            )
+            
+            if file_path:
+                # PostScriptをPNGに変換 (Pillowを使用)
+                img = Image.open(io.BytesIO(ps.encode('utf-8')))
+                img.save(file_path)
+                self.update_status(f"画像をエクスポートしました: {os.path.basename(file_path)}")
+                messagebox.showinfo("エクスポート完了", "画像をエクスポートしました。")
+        except ImportError:
+            messagebox.showerror(
+                "エラー",
+                "画像エクスポートにはPillowライブラリが必要です。\n'pip install pillow'でインストールしてください。"
+            )
+        except Exception as e:
+            messagebox.showerror("エクスポートエラー", f"エクスポート中にエラーが発生しました:\n{str(e)}")
+    
+    def open_shortcut_settings(self):
+        """ショートカットキー設定ダイアログを開く"""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("ショートカットキー設定")
+        settings_window.geometry("500x600")
+        
+        # スクロール可能なフレーム
+        canvas = tk.Canvas(settings_window)
+        scrollbar = ttk.Scrollbar(settings_window, orient=tk.VERTICAL, command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # ショートカットキーフィールド
+        shortcuts = self.config_manager.config.get("shortcuts", DEFAULT_CONFIG["shortcuts"])
+        
+        entries = {}
+        for action, default_key in DEFAULT_CONFIG["shortcuts"].items():
+            current_key = shortcuts.get(action, default_key)
+            
+            ttk.Label(scrollable_frame, text=f"{action}:", font=("Arial", 10)).pack(pady=5)
+            entry = ttk.Entry(scrollable_frame, width=40)
+            entry.insert(0, current_key)
+            entry.pack(pady=5, padx=10)
+            entries[action] = entry
+        
+        def save_shortcuts():
+            for action, entry in entries.items():
+                key_sequence = entry.get().strip()
+                if key_sequence:
+                    self.config_manager.set_shortcut(action, key_sequence)
+            self.register_shortcuts()
+            messagebox.showinfo("保存完了", "ショートカットキーを保存しました。")
+            settings_window.destroy()
+        
+        # 保存ボタン
+        ttk.Button(scrollable_frame, text="保存", command=save_shortcuts).pack(pady=10)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    def open_settings(self):
+        """設定ダイアログを開く"""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("設定")
+        settings_window.geometry("400x300")
+        
+        # グリッド設定
+        ttk.Label(settings_window, text="グリッドサイズ:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        grid_size_var = tk.IntVar(value=GRID_SIZE)
+        ttk.Spinbox(settings_window, from_=10, to=50, textvariable=grid_size_var).grid(row=0, column=1, padx=10, pady=5)
+        
+        # スナップ設定
+        snap_var = tk.BooleanVar(value=self.config_manager.get("snap_to_grid", True))
+        ttk.Checkbutton(settings_window, text="グリッドにスナップ", variable=snap_var).grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+        
+        # 自動保存設定
+        auto_save_var = tk.BooleanVar(value=self.config_manager.get("auto_save", True))
+        ttk.Checkbutton(settings_window, text="自動保存", variable=auto_save_var).grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+        
+        def save_settings():
+            self.config_manager.set("snap_to_grid", snap_var.get())
+            self.config_manager.set("auto_save", auto_save_var.get())
+            messagebox.showinfo("設定保存", "設定を保存しました。")
+            settings_window.destroy()
+        
+        ttk.Button(settings_window, text="保存", command=save_settings).grid(row=10, column=0, columnspan=2, pady=20)
+    
+    def show_help(self):
+        """ヘルプを表示"""
+        help_text = """
+Circuit Simulator - 使い方
+
+1. ゲート配置:
+   - 左側のツールパレットからゲートを選択
+   - キャンバスをクリックして配置
+
+2. 配線:
+   - 「配線モード」をチェック
+   - 出力ピン(赤)をクリック
+   - 入力ピン(緑)をクリックして接続
+
+3. 入力設定:
+   - 入力コンポーネント (INPUT) をクリックして切り替え
+
+4. シミュレーション:
+   - 「シミュレーション実行」ボタンをクリック
+
+5. ステップ実行:
+   - 「ステップ実行」ボタンをクリック
+   - 「次へ」ボタンで1ステップ進める
+
+6. 履歴表示:
+   - 「履歴表示」ボタンをクリック
+   - シミュレーション結果の各ステップを確認
+
+7. Undo/Redo:
+   - Ctrl+Z: 元に戻す
+   - Ctrl+Y: やり直す
+
+8. ズーム:
+   - Ctrl+プラス: ズームイン
+   - Ctrl+マイナス: ズームアウト
+   - マウスホイール: ズーム操作
+
+9. 保存/読み込み:
+   - ファイルメニューから保存/開くを選択
+
+10. その他:
+    - 右クリック: コンポーネント削除
+    - ドラッグ: コンポーネント移動
+    - 複数タブ: 複数の回路を管理
+        """
+        messagebox.showinfo("使い方", help_text)
+    
+    def show_about(self):
+        """バージョン情報を表示"""
+        about_text = """
+Circuit Simulator
+バージョン 2.0.0
+
+論理回路シミュレータ
+(将来的に量子回路もサポート予定)
+
+新機能:
+- Undo/Redo 機能
+- ズームイン・アウト
+- 複数回路のタブ管理
+- ステップ実行機能
+- シミュレーション履歴表示
+- ショートカットキーカスタマイズ
+
+© 2026
+        """
+        messagebox.showinfo("バージョン情報", about_text)
+    
+    def update_status(self, message: str):
+        """ステータスを更新"""
+        self.status_label.config(text=message)
+    
+    def on_closing(self):
+        """ウィンドウを閉じる時の処理"""
+        circuit = self.circuits.get(self.current_circuit_tab)
+        if circuit and self.config_manager.get("auto_save", True):
+            last_project = self.config_manager.get("last_project", "")
+            if last_project and circuit.components:
+                result = messagebox.askyesnocancel("確認", "変更を保存しますか?")
+                if result is True:
+                    self.save_circuit()
+                elif result is None:
+                    return
+        
+        self.root.destroy()
+
+
+# ========== メイン実行 ==========
+def main():
+    """メイン関数"""
+    root = tk.Tk()
+    app = CircuitSimulatorGUI(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

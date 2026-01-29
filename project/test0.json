@@ -1,0 +1,92 @@
+{
+    "circuit_type": "logic",
+    "components": [
+        {
+            "type": "AND",
+            "id": "comp_1",
+            "x": 389.42857142857144,
+            "y": 207.0
+        },
+        {
+            "type": "AND",
+            "id": "comp_2",
+            "x": 589.4285714285713,
+            "y": 207.0
+        },
+        {
+            "type": "INPUT",
+            "id": "comp_4",
+            "x": 189.42857142857144,
+            "y": 207.0
+        },
+        {
+            "type": "INPUT",
+            "id": "comp_5",
+            "x": 189.42857142857144,
+            "y": 327.0
+        },
+        {
+            "type": "OUTPUT",
+            "id": "comp_6",
+            "x": 789.4285714285716,
+            "y": 207.0
+        },
+        {
+            "type": "OR",
+            "id": "comp_7",
+            "x": 389.42857142857144,
+            "y": 327.0
+        }
+    ],
+    "wires": [
+        {
+            "id": "wire_1",
+            "from": "comp_4",
+            "to": "comp_1",
+            "to_input_index": 0,
+            "points": []
+        },
+        {
+            "id": "wire_2",
+            "from": "comp_5",
+            "to": "comp_1",
+            "to_input_index": 1,
+            "points": []
+        },
+        {
+            "id": "wire_5",
+            "from": "comp_1",
+            "to": "comp_2",
+            "to_input_index": 0,
+            "points": []
+        },
+        {
+            "id": "wire_7",
+            "from": "comp_2",
+            "to": "comp_6",
+            "to_input_index": 0,
+            "points": []
+        },
+        {
+            "id": "wire_8",
+            "from": "comp_4",
+            "to": "comp_7",
+            "to_input_index": 0,
+            "points": []
+        },
+        {
+            "id": "wire_9",
+            "from": "comp_5",
+            "to": "comp_7",
+            "to_input_index": 1,
+            "points": []
+        },
+        {
+            "id": "wire_10",
+            "from": "comp_7",
+            "to": "comp_2",
+            "to_input_index": 1,
+            "points": []
+        }
+    ]
+}
