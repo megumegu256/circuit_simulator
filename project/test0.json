@@ -4,38 +4,54 @@
         {
             "type": "AND",
             "id": "comp_1",
+            "name": "comp_1",
             "x": 389.42857142857144,
-            "y": 207.0
+            "y": 210.0
         },
         {
             "type": "AND",
             "id": "comp_2",
+            "name": "comp_2",
             "x": 589.4285714285713,
-            "y": 207.0
+            "y": 210.0
         },
         {
             "type": "INPUT",
             "id": "comp_4",
+            "name": "comp_4",
             "x": 189.42857142857144,
-            "y": 207.0
+            "y": 210.0,
+            "state": 1,
+            "pulse_enabled": false,
+            "pulse_period_steps": 4,
+            "pulse_duty_cycle": 0.5,
+            "pulse_phase": 0
         },
         {
             "type": "INPUT",
             "id": "comp_5",
+            "name": "comp_5",
             "x": 189.42857142857144,
-            "y": 327.0
+            "y": 330.0,
+            "state": 0,
+            "pulse_enabled": false,
+            "pulse_period_steps": 4,
+            "pulse_duty_cycle": 0.5,
+            "pulse_phase": 0
         },
         {
             "type": "OUTPUT",
             "id": "comp_6",
+            "name": "comp_6",
             "x": 789.4285714285716,
-            "y": 207.0
+            "y": 210.0
         },
         {
             "type": "OR",
             "id": "comp_7",
+            "name": "comp_7",
             "x": 389.42857142857144,
-            "y": 327.0
+            "y": 330.0
         }
     ],
     "wires": [

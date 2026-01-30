@@ -24,7 +24,7 @@ python main.py
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, Menu
+from tkinter import ttk, messagebox, filedialog, Menu, simpledialog
 import json
 import os
 from dataclasses import dataclass, field
@@ -199,10 +199,11 @@ class MoveComponentCommand(Command):
 class Component(ABC):
     """全てのコンポーネント(ゲート)の基底クラス"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
         self.x = x
         self.y = y
         self.id = comp_id
+        self.name = name if name else comp_id
         self.inputs: List[Optional[SignalState]] = []
         self.output: Optional[SignalState] = SignalState.UNDEFINED
         
@@ -221,6 +222,7 @@ class Component(ABC):
         return {
             "type": self.get_type(),
             "id": self.id,
+            "name": self.name,
             "x": self.x,
             "y": self.y
         }
@@ -231,6 +233,7 @@ class Component(ABC):
         gate_type = data["type"]
         x, y = data["x"], data["y"]
         comp_id = data["id"]
+        name = data.get("name", comp_id)
         
         gate_classes = {
             "AND": ANDGate,
@@ -244,8 +247,16 @@ class Component(ABC):
             "OUTPUT": OutputDisplay
         }
         
+        if gate_type == "INPUT":
+            comp = InputSource(x, y, comp_id, name=name)
+            comp.apply_pulse_settings(data)
+            if "state" in data:
+                comp.set_state(SignalState(data["state"]))
+            return comp
+        if gate_type == "OUTPUT":
+            return OutputDisplay(x, y, comp_id, name=name)
         if gate_type in gate_classes:
-            return gate_classes[gate_type](x, y, comp_id)
+            return gate_classes[gate_type](x, y, comp_id, name=name)
         else:
             raise ValueError(f"Unknown gate type: {gate_type}")
 
@@ -254,16 +265,16 @@ class Component(ABC):
 class LogicGate(Component):
     """論理ゲートの基底クラス"""
     
-    def __init__(self, x: float, y: float, comp_id: str, num_inputs: int):
-        super().__init__(x, y, comp_id)
+    def __init__(self, x: float, y: float, comp_id: str, num_inputs: int, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, name=name)
         self.inputs = [SignalState.UNDEFINED] * num_inputs
 
 
 class ANDGate(LogicGate):
     """ANDゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 2)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 2, name=name)
     
     def compute(self) -> SignalState:
         if SignalState.UNDEFINED in self.inputs:
@@ -279,8 +290,8 @@ class ANDGate(LogicGate):
 class ORGate(LogicGate):
     """ORゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 2)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 2, name=name)
     
     def compute(self) -> SignalState:
         if SignalState.UNDEFINED in self.inputs:
@@ -296,8 +307,8 @@ class ORGate(LogicGate):
 class NOTGate(LogicGate):
     """NOTゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 1)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 1, name=name)
     
     def compute(self) -> SignalState:
         if self.inputs[0] == SignalState.UNDEFINED:
@@ -313,8 +324,8 @@ class NOTGate(LogicGate):
 class NANDGate(LogicGate):
     """NANDゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 2)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 2, name=name)
     
     def compute(self) -> SignalState:
         if SignalState.UNDEFINED in self.inputs:
@@ -330,8 +341,8 @@ class NANDGate(LogicGate):
 class NORGate(LogicGate):
     """NORゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 2)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 2, name=name)
     
     def compute(self) -> SignalState:
         if SignalState.UNDEFINED in self.inputs:
@@ -347,8 +358,8 @@ class NORGate(LogicGate):
 class XORGate(LogicGate):
     """XORゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 2)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 2, name=name)
     
     def compute(self) -> SignalState:
         if SignalState.UNDEFINED in self.inputs:
@@ -365,8 +376,8 @@ class XORGate(LogicGate):
 class XNORGate(LogicGate):
     """XNORゲート"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id, 2)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, 2, name=name)
     
     def compute(self) -> SignalState:
         if SignalState.UNDEFINED in self.inputs:
@@ -383,31 +394,66 @@ class XNORGate(LogicGate):
 class InputSource(Component):
     """入力ソース"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, name=name)
         self.output = SignalState.LOW
+        self.pulse_enabled = False
+        self.pulse_period_steps = 4
+        self.pulse_duty_cycle = 0.5
+        self.pulse_phase = 0
     
     def compute(self) -> SignalState:
         return self.output
     
     def toggle(self):
         """入力を切り替える"""
+        self.pulse_enabled = False
         self.output = SignalState.HIGH if self.output == SignalState.LOW else SignalState.LOW
     
     def set_state(self, state: SignalState):
         """状態を設定する"""
+        self.pulse_enabled = False
         self.output = state
     
     def get_type(self) -> str:
         return "INPUT"
 
+    def update_pulse(self, step_index: int):
+        """パルス設定に従って出力を更新"""
+        if not self.pulse_enabled:
+            return
+        period = max(1, int(self.pulse_period_steps))
+        duty = max(0.0, min(1.0, float(self.pulse_duty_cycle)))
+        phase = int(self.pulse_phase)
+        position = (step_index + phase) % period
+        threshold = int(round(period * duty))
+        self.output = SignalState.HIGH if position < threshold else SignalState.LOW
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "state": self.output.value if self.output is not None else SignalState.UNDEFINED.value,
+            "pulse_enabled": self.pulse_enabled,
+            "pulse_period_steps": self.pulse_period_steps,
+            "pulse_duty_cycle": self.pulse_duty_cycle,
+            "pulse_phase": self.pulse_phase
+        })
+        return data
+
+    def apply_pulse_settings(self, data: Dict[str, Any]):
+        self.pulse_enabled = data.get("pulse_enabled", False)
+        self.pulse_period_steps = data.get("pulse_period_steps", 4)
+        self.pulse_duty_cycle = data.get("pulse_duty_cycle", 0.5)
+        self.pulse_phase = data.get("pulse_phase", 0)
+
 
 class OutputDisplay(Component):
     """出力ディスプレイ"""
     
-    def __init__(self, x: float, y: float, comp_id: str):
-        super().__init__(x, y, comp_id)
+    def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
+        super().__init__(x, y, comp_id, name=name)
         self.inputs = [SignalState.UNDEFINED]
+        self.history: List[SignalState] = []
     
     def compute(self) -> SignalState:
         self.output = self.inputs[0]
@@ -415,6 +461,12 @@ class OutputDisplay(Component):
     
     def get_type(self) -> str:
         return "OUTPUT"
+
+    def record_state(self):
+        self.history.append(self.output if self.output is not None else SignalState.UNDEFINED)
+
+    def clear_history(self):
+        self.history.clear()
 
 
 # ========== 配線クラス ==========
@@ -499,7 +551,7 @@ class Circuit:
         if wire_id in self.wires:
             del self.wires[wire_id]
     
-    def simulate(self, step_by_step: bool = False):
+    def simulate(self, step_by_step: bool = False, steps: int = 1):
         """シミュレーションを実行"""
         # トポロジカルソートを行い、依存関係を解決
         visited = set()
@@ -529,40 +581,50 @@ class Circuit:
         for comp_id in self.components:
             visit(comp_id)
         
-        # ステップ実行の場合は履歴を初期化
-        if step_by_step:
+        # シミュレーション履歴を初期化
+        total_steps = max(1, int(steps))
+        if step_by_step or total_steps > 1:
             self.simulation_history = []
             self.current_step = 0
-        
-        # 計算順序に従って各コンポーネントを計算
-        for comp_id in order:
-            comp = self.components[comp_id]
-            
-            # 入力を収集
-            for i, _ in enumerate(comp.inputs):
-                comp.inputs[i] = SignalState.UNDEFINED
-            
-            # 配線から入力を設定
-            for wire in self.wires.values():
-                if wire.to_comp == comp_id:
-                    from_comp = self.components[wire.from_comp]
-                    if wire.to_input_index < len(comp.inputs):
-                        comp.inputs[wire.to_input_index] = from_comp.output
-            
-            # 出力を計算
-            comp.compute()
-            
-            # ステップ実行の場合は履歴に記録
-            if step_by_step:
-                step_data = {comp_id: comp.output for comp_id in self.components}
-                self.simulation_history.append(
-                    SimulationStep(len(self.simulation_history), step_data)
-                )
-        
-        # 最終的な状態を履歴に追加
-        if not step_by_step:
+
+        # 出力記録を初期化
+        for comp in self.components.values():
+            if isinstance(comp, OutputDisplay):
+                comp.clear_history()
+
+        # 時間ステップごとに計算
+        for step_index in range(total_steps):
+            # 入力パルスの更新
+            for comp in self.components.values():
+                if isinstance(comp, InputSource):
+                    comp.update_pulse(step_index)
+
+            # 計算順序に従って各コンポーネントを計算
+            for comp_id in order:
+                comp = self.components[comp_id]
+
+                # 入力を収集
+                for i, _ in enumerate(comp.inputs):
+                    comp.inputs[i] = SignalState.UNDEFINED
+
+                # 配線から入力を設定
+                for wire in self.wires.values():
+                    if wire.to_comp == comp_id:
+                        from_comp = self.components[wire.from_comp]
+                        if wire.to_input_index < len(comp.inputs):
+                            comp.inputs[wire.to_input_index] = from_comp.output
+
+                # 出力を計算
+                comp.compute()
+
+            # 出力記録
+            for comp in self.components.values():
+                if isinstance(comp, OutputDisplay):
+                    comp.record_state()
+
+            # 履歴に記録
             step_data = {comp_id: comp.output for comp_id in self.components}
-            self.simulation_history = [SimulationStep(0, step_data)]
+            self.simulation_history.append(SimulationStep(step_index, step_data))
     
     def get_next_comp_id(self) -> str:
         """次のコンポーネントIDを生成"""
@@ -763,6 +825,8 @@ class CircuitSimulatorGUI:
         # ステップ実行状態
         self.step_mode = False
         self.current_step = 0
+        self.step_mode_steps = 20
+        self.pulse_steps = 20
         
         # キャンバス参照
         self.canvas = None
@@ -858,6 +922,9 @@ class CircuitSimulatorGUI:
         sim_menu.add_command(label="リセット", command=self.reset_simulation)
         sim_menu.add_separator()
         sim_menu.add_command(label="履歴表示", command=self.show_history)
+        sim_menu.add_command(label="出力記録表示", command=self.show_output_records)
+        sim_menu.add_separator()
+        sim_menu.add_command(label="パルス実行設定...", command=self.open_pulse_settings)
         
         # 設定メニュー
         settings_menu = Menu(menubar, tearoff=0)
@@ -1017,6 +1084,7 @@ class CircuitSimulatorGUI:
         
         # キャンバスイベント
         canvas.bind("<Button-1>", self.on_canvas_click)
+        canvas.bind("<Double-Button-1>", self.on_canvas_double_click)
         canvas.bind("<B1-Motion>", self.on_canvas_drag)
         canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         canvas.bind("<Button-3>", self.on_canvas_right_click)
@@ -1277,11 +1345,19 @@ class CircuitSimulatorGUI:
         )
         
         # ゲート名のテキスト
-        text = self.canvas.create_text(
-            x, y,
+        self.canvas.create_text(
+            x, y - 8,
             text=gate_type,
-            font=("Arial", 12, "bold"),
-            tags=(f"comp_{comp.id}", "component")
+            font=("Arial", 11, "bold"),
+            tags=(f"comp_{comp.id}", "component", "component_label")
+        )
+
+        # コンポーネント名のテキスト
+        self.canvas.create_text(
+            x, y + 12,
+            text=comp.name,
+            font=("Arial", 9),
+            tags=(f"comp_{comp.id}", "component", "component_name")
         )
         
         # 入力ピン
@@ -1311,31 +1387,98 @@ class CircuitSimulatorGUI:
         Returns:
             bool: コンポーネントが選択された場合True
         """
-        # クリック位置からコンポーネントを検索
+        comp = self.find_component_at_position(x, y)
+        if not comp:
+            return False
+
+        # 入力ソースの場合はトグル
+        if isinstance(comp, InputSource):
+            comp.toggle()
+            self.update_component_display(comp)
+            self.update_status(f"入力を切り替えました: {comp.output.name}")
+            return True
+
+        # 通常のコンポーネントはドラッグ準備
+        self.selected_component = comp
+        self.dragging_component = comp
+        self.drag_offset = (comp.x - x, comp.y - y)
+        self.update_status(f"コンポーネント選択: {comp.get_type()} ({comp.name})")
+        return True
+
+    def find_component_at_position(self, x: float, y: float) -> Optional[Component]:
+        """クリック位置からコンポーネントを検索"""
         circuit = self.circuits.get(self.current_circuit_tab)
         if not circuit:
-            return False
-        
-        for comp_id, comp in circuit.components.items():
-            # コンポーネントの矩形内をクリックしたかチェック
+            return None
+
+        for comp in circuit.components.values():
             if (comp.x - GATE_WIDTH/2 <= x <= comp.x + GATE_WIDTH/2 and
                 comp.y - GATE_HEIGHT/2 <= y <= comp.y + GATE_HEIGHT/2):
-                
-                # 入力ソースの場合はトグル
-                if isinstance(comp, InputSource):
-                    comp.toggle()
-                    self.update_component_display(comp)
-                    self.update_status(f"入力を切り替えました: {comp.output.name}")
-                    return True
-                else:
-                    # 通常のコンポーネントはドラッグ準備
-                    self.selected_component = comp
-                    self.dragging_component = comp
-                    self.drag_offset = (comp.x - x, comp.y - y)
-                    self.update_status(f"コンポーネント選択: {comp.get_type()} (ID: {comp_id})")
-                    return True
-        
-        return False
+                return comp
+
+        return None
+
+    def on_canvas_double_click(self, event):
+        """ダブルクリックでプロパティを開く"""
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        comp = self.find_component_at_position(x, y)
+        if comp:
+            self.open_component_properties(comp)
+
+    def open_component_properties(self, comp: Component):
+        """コンポーネントのプロパティ編集"""
+        prop_window = tk.Toplevel(self.root)
+        prop_window.title("コンポーネント設定")
+        prop_window.geometry("420x360")
+
+        ttk.Label(prop_window, text=f"タイプ: {comp.get_type()}").pack(anchor="w", padx=10, pady=5)
+        ttk.Label(prop_window, text=f"ID: {comp.id}").pack(anchor="w", padx=10, pady=5)
+
+        ttk.Label(prop_window, text="名称:").pack(anchor="w", padx=10, pady=5)
+        name_entry = ttk.Entry(prop_window, width=40)
+        name_entry.insert(0, comp.name)
+        name_entry.pack(anchor="w", padx=10, pady=5)
+
+        pulse_enabled_var = tk.BooleanVar(value=False)
+        period_var = tk.IntVar(value=4)
+        duty_var = tk.DoubleVar(value=50.0)
+        phase_var = tk.IntVar(value=0)
+
+        if isinstance(comp, InputSource):
+            pulse_enabled_var.set(comp.pulse_enabled)
+            period_var.set(comp.pulse_period_steps)
+            duty_var.set(comp.pulse_duty_cycle * 100.0)
+            phase_var.set(comp.pulse_phase)
+
+            ttk.Separator(prop_window, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=10)
+            ttk.Label(prop_window, text="パルス設定").pack(anchor="w", padx=10, pady=5)
+
+            ttk.Checkbutton(prop_window, text="パルスを有効化", variable=pulse_enabled_var).pack(anchor="w", padx=10, pady=5)
+            ttk.Label(prop_window, text="周期 (ステップ数):").pack(anchor="w", padx=10, pady=5)
+            ttk.Spinbox(prop_window, from_=1, to=1000, textvariable=period_var, width=10).pack(anchor="w", padx=10, pady=5)
+            ttk.Label(prop_window, text="デューティ比 (%):").pack(anchor="w", padx=10, pady=5)
+            ttk.Spinbox(prop_window, from_=1, to=100, textvariable=duty_var, width=10).pack(anchor="w", padx=10, pady=5)
+            ttk.Label(prop_window, text="位相 (ステップ):").pack(anchor="w", padx=10, pady=5)
+            ttk.Spinbox(prop_window, from_=0, to=1000, textvariable=phase_var, width=10).pack(anchor="w", padx=10, pady=5)
+
+        if isinstance(comp, OutputDisplay):
+            ttk.Separator(prop_window, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=10)
+            ttk.Label(prop_window, text=f"記録数: {len(comp.history)}").pack(anchor="w", padx=10, pady=5)
+            ttk.Button(prop_window, text="出力記録を表示", command=lambda: self.show_output_records(target_id=comp.id)).pack(anchor="w", padx=10, pady=5)
+            ttk.Button(prop_window, text="出力記録をクリア", command=comp.clear_history).pack(anchor="w", padx=10, pady=5)
+
+        def save_properties():
+            comp.name = name_entry.get().strip() or comp.id
+            if isinstance(comp, InputSource):
+                comp.pulse_enabled = bool(pulse_enabled_var.get())
+                comp.pulse_period_steps = max(1, int(period_var.get()))
+                comp.pulse_duty_cycle = max(0.01, min(1.0, float(duty_var.get()) / 100.0))
+                comp.pulse_phase = int(phase_var.get())
+            self.redraw_canvas()
+            self.update_status(f"{comp.get_type()} の設定を更新しました")
+            prop_window.destroy()
+
+        ttk.Button(prop_window, text="保存", command=save_properties).pack(pady=10)
     
     def on_canvas_drag(self, event):
         """キャンバスドラッグ時の処理"""
@@ -1470,8 +1613,10 @@ class CircuitSimulatorGUI:
                     circuit = self.circuits[self.current_circuit_tab]
                     if comp_id in circuit.components:
                         comp = circuit.components[comp_id]
+                        name_text = comp.name if comp.name else comp.id
+                        output_text = comp.output.name if comp.output else "N/A"
                         self.status_label.config(
-                            text=f"{comp.get_type()} | 出力: {comp.output.name if comp.output else 'N/A'}"
+                            text=f"{comp.get_type()} ({name_text}) | 出力: {output_text}"
                         )
     
     def find_pin_at_position(self, x: float, y: float, search_radius: float = 30.0) -> Optional[Tuple[str, str, int]]:
@@ -1645,9 +1790,9 @@ class CircuitSimulatorGUI:
         self.step_mode = not self.step_mode
         if self.step_mode:
             circuit = self.circuits[self.current_circuit_tab]
-            circuit.simulate(step_by_step=True)
+            circuit.simulate(step_by_step=True, steps=self.step_mode_steps)
             self.current_step = 0
-            self.update_all_displays()
+            self.apply_simulation_step(0)
             self.update_status("ステップ実行モード: 有効")
         else:
             self.update_status("ステップ実行モード: 無効")
@@ -1661,7 +1806,7 @@ class CircuitSimulatorGUI:
         circuit = self.circuits[self.current_circuit_tab]
         if self.current_step < len(circuit.simulation_history) - 1:
             self.current_step += 1
-            self.update_all_displays()
+            self.apply_simulation_step(self.current_step)
             self.update_status(f"ステップ: {self.current_step + 1}")
         else:
             messagebox.showinfo("情報", "最後のステップです")
@@ -1670,12 +1815,33 @@ class CircuitSimulatorGUI:
         """シミュレーションを実行"""
         try:
             circuit = self.circuits[self.current_circuit_tab]
-            circuit.simulate()
+            pulse_inputs = [c for c in circuit.components.values() if isinstance(c, InputSource) and c.pulse_enabled]
+            steps = self.pulse_steps if pulse_inputs else 1
+            circuit.simulate(steps=steps)
             self.update_all_displays()
             self.update_status("シミュレーションを実行しました。")
             messagebox.showinfo("シミュレーション完了", "シミュレーションが正常に完了しました。")
         except Exception as e:
             messagebox.showerror("シミュレーションエラー", f"エラーが発生しました:\n{str(e)}")
+
+    def apply_simulation_step(self, step_index: int):
+        """履歴の指定ステップを画面に反映"""
+        circuit = self.circuits[self.current_circuit_tab]
+        if not circuit.simulation_history:
+            return
+        step = circuit.simulation_history[max(0, min(step_index, len(circuit.simulation_history) - 1))]
+        for comp_id, state in step.component_states.items():
+            if comp_id in circuit.components:
+                circuit.components[comp_id].output = state
+        self.update_all_displays()
+
+    def open_pulse_settings(self):
+        """パルス実行設定を開く"""
+        value = simpledialog.askinteger("パルス実行設定", "パルス実行のステップ数を入力してください (1-1000)",
+                                        initialvalue=self.pulse_steps, minvalue=1, maxvalue=1000)
+        if value:
+            self.pulse_steps = value
+            self.update_status(f"パルス実行ステップ数: {self.pulse_steps}")
     
     def reset_simulation(self):
         """シミュレーションをリセット"""
@@ -1748,7 +1914,41 @@ class CircuitSimulatorGUI:
             parent = tree.insert("", "end", text=step_text)
             for comp_id, state in step.component_states.items():
                 state_text = state.name if state else "UNDEFINED"
-                tree.insert(parent, "end", text=comp_id, values=(comp_id, state_text))
+                comp = circuit.components.get(comp_id)
+                name_text = comp.name if comp else comp_id
+                tree.insert(parent, "end", text=comp_id, values=(f"{name_text}", state_text))
+
+    def show_output_records(self, target_id: Optional[str] = None):
+        """出力記録を表示"""
+        circuit = self.circuits[self.current_circuit_tab]
+        outputs = [c for c in circuit.components.values() if isinstance(c, OutputDisplay)]
+        if target_id:
+            outputs = [c for c in outputs if c.id == target_id]
+        
+        if not outputs:
+            messagebox.showinfo("情報", "出力記録がありません")
+            return
+
+        record_window = tk.Toplevel(self.root)
+        record_window.title("出力記録")
+        record_window.geometry("700x400")
+
+        tree = ttk.Treeview(record_window, columns=("出力", "状態"), height=18)
+        tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        tree.column("#0", width=80, heading="ステップ")
+        tree.column("出力", width=250)
+        tree.column("状態", width=120)
+        tree.heading("#0", text="ステップ")
+        tree.heading("出力", text="出力")
+        tree.heading("状態", text="状態")
+
+        max_len = max((len(o.history) for o in outputs), default=0)
+        for step_index in range(max_len):
+            step_label = f"Step {step_index}"
+            parent = tree.insert("", "end", text=step_label)
+            for output in outputs:
+                state = output.history[step_index] if step_index < len(output.history) else SignalState.UNDEFINED
+                tree.insert(parent, "end", text=output.id, values=(output.name, state.name))
     
     def clear_canvas(self):
         """キャンバスをクリア"""
