@@ -1,0 +1,328 @@
+save_properties(): ID=comp_2, 周期=2.0ms, デューティ比=0.5
+save_properties(): ID=comp_4, 周期=4.0ms, デューティ比=0.5
+save_properties(): ID=comp_3, 周期=3.0ms, デューティ比=0.5
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+save_properties(): ID=comp_1, 周期=1.0ms, デューティ比=0.5
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+    update_pulse(comp_2): period_sec=0.002, position=0.0, threshold=0.001, pulse_period=2.0, unit=ms
+    update_pulse(comp_3): period_sec=0.003, position=0.0, threshold=0.0015, pulse_period=3.0, unit=ms
+    update_pulse(comp_4): period_sec=0.004, position=0.0, threshold=0.002, pulse_period=4.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+save_properties(): ID=comp_1, 周期=1.0ms, デューティ比=0.5
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168
+
+=== circuit.components の内容 ===
+comp_1 -> comp_1: comp_1, pulse_period=1.0ms, ref_id=2000554872720
+comp_2 -> comp_2: comp_2, pulse_period=2.0ms, ref_id=2000554872528
+comp_3 -> comp_3: comp_3, pulse_period=3.0ms, ref_id=2000554872592
+comp_4 -> comp_4: comp_4, pulse_period=4.0ms, ref_id=2000554873168
+    update_pulse(comp_1): period_sec=0.001, position=0.0, threshold=0.0005, pulse_period=1.0, unit=ms
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2000554872720
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2000554872528
+  ID: comp_3, 名前: comp_3, 周期: 3.0ms, オブジェクトID: 2000554872592
+  ID: comp_4, 名前: comp_4, 周期: 4.0ms, オブジェクトID: 2000554873168

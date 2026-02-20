@@ -34,6 +34,13 @@ from abc import ABC, abstractmethod
 import math
 from copy import deepcopy
 from collections import deque
+import matplotlib
+matplotlib.use('TkAgg')
+# 日本語フォント設定
+matplotlib.rcParams['font.sans-serif'] = ['Yu Gothic', 'Hiragino Sans', 'DejaVu Sans']
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 
 # ========== 定数定義 ==========
@@ -86,6 +93,27 @@ class SignalState(Enum):
     LOW = 0
     HIGH = 1
     UNDEFINED = -1
+
+
+# ========== 時間単位 ==========
+class TimeUnit(Enum):
+    """時間の単位"""
+    SECONDS = ("s", 1.0)
+    MILLISECONDS = ("ms", 1e-3)
+    MICROSECONDS = ("μs", 1e-6)
+    NANOSECONDS = ("ns", 1e-9)
+    
+    def __init__(self, symbol: str, multiplier: float):
+        self.symbol = symbol
+        self.multiplier = multiplier
+    
+    @staticmethod
+    def from_symbol(symbol: str) -> 'TimeUnit':
+        """記号から時間単位を取得"""
+        for unit in TimeUnit:
+            if unit.symbol == symbol:
+                return unit
+        return TimeUnit.SECONDS
 
 
 # ========== Command パターン (Undo/Redo) ==========
@@ -397,10 +425,16 @@ class InputSource(Component):
     def __init__(self, x: float, y: float, comp_id: str, name: Optional[str] = None):
         super().__init__(x, y, comp_id, name=name)
         self.output = SignalState.LOW
-        self.pulse_enabled = False
+        self.pulse_enabled = True  # パルスは常に有効
+        # 時間ベースのパルス設定
+        self.pulse_period = 1.0  # 周期（時間単位での値）
+        self.pulse_period_unit = TimeUnit.MILLISECONDS  # 周期の単位
+        self.pulse_duty_cycle = 0.5  # デューティサイクル（0.0-1.0）
+        self.pulse_phase = 0.0  # 位相（時間単位での値）
+        self.pulse_phase_unit = TimeUnit.MILLISECONDS  # 位相の単位
+        # 後方互換性のためのステップベース設定
         self.pulse_period_steps = 4
-        self.pulse_duty_cycle = 0.5
-        self.pulse_phase = 0
+        self.pulse_phase_steps = 0
     
     def compute(self) -> SignalState:
         return self.output
@@ -418,33 +452,62 @@ class InputSource(Component):
     def get_type(self) -> str:
         return "INPUT"
 
-    def update_pulse(self, step_index: int):
-        """パルス設定に従って出力を更新"""
+    def update_pulse(self, step_index: int, time_step: float = None):
+        """パルス設定に従って出力を更新
+        
+        Args:
+            step_index: ステップインデックス
+            time_step: 1ステップあたりの時間（秒単位）。Noneの場合はステップベースで計算
+        """
         if not self.pulse_enabled:
             return
-        period = max(1, int(self.pulse_period_steps))
-        duty = max(0.0, min(1.0, float(self.pulse_duty_cycle)))
-        phase = int(self.pulse_phase)
-        position = (step_index + phase) % period
-        threshold = int(round(period * duty))
-        self.output = SignalState.HIGH if position < threshold else SignalState.LOW
+        
+        if time_step is not None:
+            # 時間ベースの計算
+            current_time = step_index * time_step
+            period_sec = self.pulse_period * self.pulse_period_unit.multiplier
+            phase_sec = self.pulse_phase * self.pulse_phase_unit.multiplier
+            duty = max(0.0, min(1.0, float(self.pulse_duty_cycle)))
+            
+            position = (current_time + phase_sec) % period_sec
+            threshold = period_sec * duty
+            self.output = SignalState.HIGH if position < threshold else SignalState.LOW
+        else:
+            # ステップベース（後方互換性）
+            period = max(1, int(self.pulse_period_steps))
+            duty = max(0.0, min(1.0, float(self.pulse_duty_cycle)))
+            phase = int(self.pulse_phase_steps)
+            position = (step_index + phase) % period
+            threshold = int(round(period * duty))
+            self.output = SignalState.HIGH if position < threshold else SignalState.LOW
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
         data.update({
             "state": self.output.value if self.output is not None else SignalState.UNDEFINED.value,
             "pulse_enabled": self.pulse_enabled,
-            "pulse_period_steps": self.pulse_period_steps,
+            "pulse_period": self.pulse_period,
+            "pulse_period_unit": self.pulse_period_unit.symbol,
             "pulse_duty_cycle": self.pulse_duty_cycle,
-            "pulse_phase": self.pulse_phase
+            "pulse_phase": self.pulse_phase,
+            "pulse_phase_unit": self.pulse_phase_unit.symbol,
+            # 後方互換性
+            "pulse_period_steps": self.pulse_period_steps,
+            "pulse_phase_steps": self.pulse_phase_steps
         })
         return data
 
     def apply_pulse_settings(self, data: Dict[str, Any]):
-        self.pulse_enabled = data.get("pulse_enabled", False)
-        self.pulse_period_steps = data.get("pulse_period_steps", 4)
+        self.pulse_enabled = data.get("pulse_enabled", True)  # デフォルトはTrue（常に有効）
+        # 新しい時間ベース設定
+        self.pulse_period = data.get("pulse_period", 1.0)
+        self.pulse_period_unit = TimeUnit.from_symbol(data.get("pulse_period_unit", "ms"))
         self.pulse_duty_cycle = data.get("pulse_duty_cycle", 0.5)
-        self.pulse_phase = data.get("pulse_phase", 0)
+        self.pulse_phase = data.get("pulse_phase", 0.0)
+        self.pulse_phase_unit = TimeUnit.from_symbol(data.get("pulse_phase_unit", "ms"))
+        # 後方互換性
+        self.pulse_period_steps = data.get("pulse_period_steps", 4)
+        self.pulse_phase_steps = data.get("pulse_phase_steps", 0)
 
 
 class OutputDisplay(Component):
@@ -522,6 +585,7 @@ class Circuit:
         self.next_wire_id = 1
         self.simulation_history: List[SimulationStep] = []
         self.current_step = 0
+        self.last_time_step = 0.001  # 最後のシミュレーションで使用した時間ステップ（秘位）
     
     def add_component(self, component: Component) -> str:
         """コンポーネントを追加"""
@@ -551,8 +615,14 @@ class Circuit:
         if wire_id in self.wires:
             del self.wires[wire_id]
     
-    def simulate(self, step_by_step: bool = False, steps: int = 1):
-        """シミュレーションを実行"""
+    def simulate(self, step_by_step: bool = False, steps: int = 1, time_step: float = None):
+        """シミュレーションを実行
+        
+        Args:
+            step_by_step: ステップ実行モード
+            steps: 実行ステップ数
+            time_step: 1ステップあたりの時間（秒単位）。Noneの場合はステップベース
+        """
         # トポロジカルソートを行い、依存関係を解決
         visited = set()
         processing = set()
@@ -592,12 +662,16 @@ class Circuit:
             if isinstance(comp, OutputDisplay):
                 comp.clear_history()
 
+        # 時間ステップを保存
+        if time_step is not None:
+            self.last_time_step = time_step
+        
         # 時間ステップごとに計算
         for step_index in range(total_steps):
             # 入力パルスの更新
             for comp in self.components.values():
                 if isinstance(comp, InputSource):
-                    comp.update_pulse(step_index)
+                    comp.update_pulse(step_index, time_step)
 
             # 計算順序に従って各コンポーネントを計算
             for comp_id in order:
@@ -623,7 +697,7 @@ class Circuit:
                     comp.record_state()
 
             # 履歴に記録
-            step_data = {comp_id: comp.output for comp_id in self.components}
+            step_data = {comp_id: self.components[comp_id].output for comp_id in self.components}
             self.simulation_history.append(SimulationStep(step_index, step_data))
     
     def get_next_comp_id(self) -> str:
@@ -785,6 +859,369 @@ class CommandHistory:
         self.redo_stack.clear()
 
 
+# ========== シミュレーション表示パネル ==========
+class SimulationPanel:
+    """タブ内に埋め込まれるシミュレーション表示パネル"""
+    
+    def __init__(self, parent_frame, circuit: Circuit, callback_reset, callback_simulate):
+        """
+        Args:
+            parent_frame: 親フレーム
+            circuit: 回路オブジェクト
+            callback_reset: リセット時のコールバック
+            callback_simulate: シミュレーション実行時のコールバック
+        """
+        self.circuit = circuit
+        self.callback_reset = callback_reset
+        self.callback_simulate = callback_simulate
+        
+        # 親フレーム内にメインフレームを作成
+        main_frame = ttk.Frame(parent_frame)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # シミュレーション設定フレーム（固定）
+        config_frame = ttk.LabelFrame(main_frame, text="シミュレーション設定", padding=10)
+        config_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        # 時間設定
+        time_frame = ttk.Frame(config_frame)
+        time_frame.pack(anchor="w", pady=5)
+        ttk.Label(time_frame, text="実行時間:").pack(side=tk.LEFT)
+        self.time_var = tk.DoubleVar(value=10.0)
+        ttk.Entry(time_frame, textvariable=self.time_var, width=10).pack(side=tk.LEFT, padx=5)
+        
+        # 単位選択
+        unit_frame = ttk.Frame(config_frame)
+        unit_frame.pack(anchor="w", pady=5)
+        ttk.Label(unit_frame, text="単位:").pack(side=tk.LEFT)
+        self.unit_var = tk.StringVar(value="ms")
+        ttk.Combobox(unit_frame, textvariable=self.unit_var, width=8,
+                    values=[unit.symbol for unit in TimeUnit], state='readonly').pack(side=tk.LEFT, padx=5)
+        
+        # グラフ表示の最大時間設定
+        display_time_frame = ttk.Frame(config_frame)
+        display_time_frame.pack(anchor="w", pady=5)
+        ttk.Label(display_time_frame, text="グラフ最大時間:").pack(side=tk.LEFT)
+        self.display_time_var = tk.DoubleVar(value=10.0)
+        ttk.Entry(display_time_frame, textvariable=self.display_time_var, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Label(display_time_frame, text="(式は実行時間と同じ単位)").pack(side=tk.LEFT, padx=5)
+        
+        # ボタン
+        button_frame = ttk.Frame(config_frame)
+        button_frame.pack(fill=tk.X, pady=10)
+        ttk.Button(button_frame, text="▶ 実行", command=self.run_simulation).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="✕ リセット", command=self.reset_simulation).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="🔄 更新", command=self.refresh_waveform).pack(side=tk.LEFT, padx=2)
+        
+        # グラフフレーム（スクロール可能）
+        graph_frame = ttk.LabelFrame(main_frame, text="波形グラフ", padding=5)
+        graph_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # キャンバス + スクロールバーの構成
+        canvas_container = ttk.Frame(graph_frame)
+        canvas_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Tkinterキャンバス（スクロール用）
+        self.scroll_canvas = tk.Canvas(canvas_container, bg="white")
+        self.scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # スクロールバー
+        scrollbar = ttk.Scrollbar(canvas_container, orient=tk.VERTICAL, command=self.scroll_canvas.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.scroll_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # スクロール可能なフレーム
+        self.scrollable_frame = ttk.Frame(self.scroll_canvas)
+        self.scroll_canvas_window = self.scroll_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        # マウスホイールスクロール対応
+        self.scroll_canvas.bind_all("<MouseWheel>", lambda e: self._on_mousewheel(e))
+        
+        # 初期状態では波形をプロット
+        self.update_waveform()
+    
+    def run_simulation(self):
+        """シミュレーションを実行"""
+        try:
+            time_val = self.time_var.get()
+            unit_symbol = self.unit_var.get()
+            time_unit = TimeUnit.from_symbol(unit_symbol)
+            
+            # コールバック実行
+            self.callback_simulate(time_val, time_unit)
+            
+            # 波形更新
+            self.update_waveform()
+        except Exception as e:
+            messagebox.showerror("エラー", f"シミュレーション実行エラー:\n{str(e)}")
+    
+    def reset_simulation(self):
+        """シミュレーションをリセット"""
+        try:
+            self.callback_reset()
+            self.update_waveform()
+        except Exception as e:
+            messagebox.showerror("エラー", f"リセットエラー:\n{str(e)}")
+    
+    def refresh_waveform(self):
+        """波形を更新（ワークスペース変更時）"""
+        try:
+            self.update_waveform()
+            messagebox.showinfo("情報", "波形グラフを更新しました")
+        except Exception as e:
+            messagebox.showerror("エラー", f"更新エラー:\n{str(e)}")
+    
+    def _on_mousewheel(self, event):
+        """マウスホイールスクロール処理"""
+        try:
+            if self.scroll_canvas.winfo_containing(event.x_root, event.y_root) == self.scroll_canvas:
+                self.scroll_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        except:
+            pass
+    
+    def update_waveform(self):
+        """波形グラフを更新（スクロール可能）"""
+        # スクロール可能フレーム内の古いウィジェットをクリア
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        # 入力と出力を分離
+        inputs = [comp for comp in self.circuit.components.values() if isinstance(comp, InputSource)]
+        outputs = [comp for comp in self.circuit.components.values() if isinstance(comp, OutputDisplay)]
+        
+        all_signals = inputs + outputs
+        
+        if not all_signals:
+            ttk.Label(self.scrollable_frame, text="表示する信号がありません", font=("Arial", 10)).pack(pady=20)
+            self._update_scroll_region()
+            return
+        
+        # シミュレーション履歴が存在するか確認
+        num_steps = len(self.circuit.simulation_history)
+        
+        # グラフ表示の最大時間を取得（ユーザー入力値）
+        try:
+            display_max_time_value = self.display_time_var.get()
+            unit_symbol = self.unit_var.get()
+            time_unit = TimeUnit.from_symbol(unit_symbol)
+            # ユーザー入力値を秒に変換
+            display_max_time_sec = display_max_time_value * time_unit.multiplier
+        except:
+            display_max_time_value = 10.0
+            display_max_time_sec = 10.0
+        
+        if num_steps == 0:
+            # テスト表示：シミュレーション前
+            for comp in all_signals:
+                fig = Figure(figsize=(5, 0.5), dpi=80)
+                ax = fig.add_subplot(111)
+                ax.text(0.5, 0.5, f"[{comp.get_type()}] {comp.name or comp.id}", 
+                       ha='center', va='center', transform=ax.transAxes, fontsize=9)
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.axis('off')
+                
+                # フレームに埋め込み
+                frame = ttk.Frame(self.scrollable_frame)
+                frame.pack(fill=tk.X, padx=5, pady=2)
+                canvas = FigureCanvasTkAgg(fig, master=frame)
+                canvas.get_tk_widget().pack(fill=tk.X)
+        else:
+            # 時間軸を生成(計算された最後の時間ステップを使用)
+            time_step_sec = self.circuit.last_time_step
+            time_values = [i * time_step_sec for i in range(num_steps)]
+            
+            for idx, comp in enumerate(all_signals):
+                # 各信号を小さなグラフで表示
+                fig = Figure(figsize=(5, 0.6), dpi=80)
+                ax = fig.add_subplot(111)
+                
+                if isinstance(comp, InputSource):
+                    # 入力信号
+                    signal_values = []
+                    for step in self.circuit.simulation_history:
+                        state = step.component_states.get(comp.id, SignalState.UNDEFINED)
+                        signal_values.append(1 if state == SignalState.HIGH else (0 if state == SignalState.LOW else None))
+                    
+                    ax.step(time_values, signal_values, where='post', linewidth=1.5, color='blue')
+                else:
+                    # 出力信号
+                    signal_values = []
+                    for state in comp.history:
+                        signal_values.append(1 if state == SignalState.HIGH else (0 if state == SignalState.LOW else None))
+                    
+                    time_vals_out = time_values[:len(signal_values)]
+                    ax.step(time_vals_out, signal_values, where='post', linewidth=1.5, color='orange')
+                
+                # グラフ設定
+                ax.set_ylabel(comp.name or comp.id, fontsize=8)
+                ax.set_ylim(-0.2, 1.2)
+                ax.set_yticks([0, 1])
+                ax.set_yticklabels(['0', '1'], fontsize=7)
+                ax.set_xlim(0, display_max_time_sec)
+                ax.grid(True, alpha=0.2)
+                ax.tick_params(labelsize=7)
+                
+                # 最後のグラフに時間軸ラベルを表示
+                if idx == len(all_signals) - 1:
+                    ax.set_xlabel(f"時間 ({unit_symbol})", fontsize=8)
+                
+                # フレームに埋め込み
+                frame = ttk.Frame(self.scrollable_frame)
+                frame.pack(fill=tk.X, padx=5, pady=2)
+                canvas = FigureCanvasTkAgg(fig, master=frame)
+                canvas.get_tk_widget().pack(fill=tk.X)
+        
+        # スクロール領域を更新
+        self._update_scroll_region()
+    
+    def _update_scroll_region(self):
+        """スクロール領域のサイズを更新"""
+        self.scrollable_frame.update_idletasks()
+        self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+
+
+# ========== 波形表示ダイアログ ==========
+class WaveformDialog:
+    """入出力信号の波形を表示するダイアログ"""
+    
+    def __init__(self, parent, circuit: Circuit, time_step: float, total_time: float, time_unit: TimeUnit):
+        """
+        Args:
+            parent: 親ウィンドウ
+            circuit: 回路オブジェクト
+            time_step: 1ステップあたりの時間（秒単位）
+            total_time: 総シミュレーション時間（time_unit単位）
+            time_unit: 表示時間の単位
+        """
+        self.window = tk.Toplevel(parent)
+        self.window.title("波形表示")
+        self.window.geometry("1000x700")
+        
+        self.circuit = circuit
+        self.time_step = time_step
+        self.total_time = total_time
+        self.time_unit = time_unit
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """ウィジェットを作成"""
+        # コントロールフレーム
+        control_frame = ttk.Frame(self.window)
+        control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(control_frame, text="波形表示設定").pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="更新", command=self.update_plot).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="閉じる", command=self.window.destroy).pack(side=tk.RIGHT, padx=5)
+        
+        # matplotlibグラフ
+        self.fig = Figure(figsize=(10, 6), dpi=100)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 初期プロット
+        self.update_plot()
+    
+    def update_plot(self):
+        """プロットを更新"""
+        self.fig.clear()
+        
+        # 入力と出力を分離
+        inputs = [comp for comp in self.circuit.components.values() if isinstance(comp, InputSource)]
+        outputs = [comp for comp in self.circuit.components.values() if isinstance(comp, OutputDisplay)]
+        
+        if not inputs and not outputs:
+            ax = self.fig.add_subplot(111)
+            ax.text(0.5, 0.5, "表示する信号がありません", ha='center', va='center', transform=ax.transAxes)
+            self.canvas.draw()
+            return
+        
+        # サブプロットの数を決定
+        num_plots = len(inputs) + len(outputs)
+        if num_plots == 0:
+            return
+        
+        # 時間軸を生成
+        num_steps = len(self.circuit.simulation_history)
+        if num_steps == 0:
+            ax = self.fig.add_subplot(111)
+            ax.text(0.5, 0.5, "シミュレーション履歴がありません", ha='center', va='center', transform=ax.transAxes)
+            self.canvas.draw()
+            return
+        
+        time_values = [i * self.time_step / self.time_unit.multiplier for i in range(num_steps)]
+        
+        plot_idx = 1
+        
+        # 入力信号をプロット
+        for input_comp in inputs:
+            ax = self.fig.add_subplot(num_plots, 1, plot_idx)
+            
+            # 履歴から信号値を取得
+            signal_values = []
+            for step in self.circuit.simulation_history:
+                state = step.component_states.get(input_comp.id, SignalState.UNDEFINED)
+                if state == SignalState.HIGH:
+                    signal_values.append(1)
+                elif state == SignalState.LOW:
+                    signal_values.append(0)
+                else:
+                    signal_values.append(None)
+            
+            # 階段状の波形を描画
+            ax.step(time_values, signal_values, where='post', linewidth=2, label=input_comp.name or input_comp.id)
+            ax.set_ylabel('信号')
+            ax.set_ylim(-0.2, 1.2)
+            ax.set_yticks([0, 1])
+            ax.set_yticklabels(['LOW', 'HIGH'])
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper right')
+            
+            if plot_idx < num_plots:
+                ax.set_xticklabels([])
+            
+            plot_idx += 1
+        
+        # 出力信号をプロット
+        for output_comp in outputs:
+            ax = self.fig.add_subplot(num_plots, 1, plot_idx)
+            
+            # 出力履歴から信号値を取得
+            signal_values = []
+            for state in output_comp.history:
+                if state == SignalState.HIGH:
+                    signal_values.append(1)
+                elif state == SignalState.LOW:
+                    signal_values.append(0)
+                else:
+                    signal_values.append(None)
+            
+            # 時間軸を調整（出力履歴の長さに合わせる）
+            time_values_out = time_values[:len(signal_values)]
+            
+            # 階段状の波形を描画
+            ax.step(time_values_out, signal_values, where='post', linewidth=2, color='orange', label=output_comp.name or output_comp.id)
+            ax.set_ylabel('信号')
+            ax.set_ylim(-0.2, 1.2)
+            ax.set_yticks([0, 1])
+            ax.set_yticklabels(['LOW', 'HIGH'])
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper right')
+            
+            if plot_idx < num_plots:
+                ax.set_xticklabels([])
+            
+            plot_idx += 1
+        
+        # 最後のプロットにのみX軸ラベルを追加
+        ax.set_xlabel(f'時間 ({self.time_unit.symbol})')
+        
+        self.fig.tight_layout()
+        self.canvas.draw()
+
+
 # ========== メインGUIアプリケーション ==========
 class CircuitSimulatorGUI:
     """回路シミュレータのGUIクラス"""
@@ -792,7 +1229,7 @@ class CircuitSimulatorGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Circuit Simulator - 論理回路シミュレータ")
-        self.root.geometry("1600x1000")
+        self.root.geometry("2000x1000")
         
         # 設定マネージャー
         self.config_manager = ConfigManager()
@@ -827,6 +1264,11 @@ class CircuitSimulatorGUI:
         self.current_step = 0
         self.step_mode_steps = 20
         self.pulse_steps = 20
+        
+        # シミュレーション設定
+        self.sim_total_time = 10.0  # 総シミュレーション時間（時間単位での値）
+        self.sim_time_unit = TimeUnit.MILLISECONDS  # シミュレーション時間の単位
+        self.sim_time_step = 0.1  # 1ステップあたりの時間（sim_time_unit単位）
         
         # キャンバス参照
         self.canvas = None
@@ -921,9 +1363,11 @@ class CircuitSimulatorGUI:
         sim_menu.add_command(label="次のステップ", command=self.next_step)
         sim_menu.add_command(label="リセット", command=self.reset_simulation)
         sim_menu.add_separator()
+        sim_menu.add_command(label="波形表示", command=self.show_waveform)
         sim_menu.add_command(label="履歴表示", command=self.show_history)
         sim_menu.add_command(label="出力記録表示", command=self.show_output_records)
         sim_menu.add_separator()
+        sim_menu.add_command(label="シミュレーション設定...", command=self.open_simulation_settings)
         sim_menu.add_command(label="パルス実行設定...", command=self.open_pulse_settings)
         
         # 設定メニュー
@@ -1057,9 +1501,23 @@ class CircuitSimulatorGUI:
         tab_frame = ttk.Frame(self.notebook)
         self.notebook.add(tab_frame, text=f"回路 {tab_index + 1}")
         
+        # 上部: コントロールボタンフレーム
+        control_button_frame = ttk.Frame(tab_frame)
+        control_button_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(
+            control_button_frame,
+            text="📊 シミュレーションを開く",
+            command=lambda: self.toggle_simulation_panel(tab_id)
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # 中部: PanedWindow（キャンバス + シミュレーションパネル）
+        paned_window = ttk.PanedWindow(tab_frame, orient=tk.HORIZONTAL)
+        paned_window.pack(fill=tk.BOTH, expand=True)
+        
         # キャンバスフレーム
-        canvas_frame = ttk.Frame(tab_frame)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        canvas_frame = ttk.Frame(paned_window)
+        paned_window.add(canvas_frame, weight=3)
         
         # キャンバス
         canvas = tk.Canvas(
@@ -1093,13 +1551,51 @@ class CircuitSimulatorGUI:
         canvas.bind("<Button-4>", self.on_mouse_wheel)  # Linux
         canvas.bind("<Button-5>", self.on_mouse_wheel)  # Linux
         
+        # シミュレーションパネルを作成（初期状態では追加しない）
+        sim_panel_frame = ttk.Frame(paned_window)
+        
+        def callback_reset():
+            """シミュレーションリセットコールバック"""
+            circuit = self.circuits[tab_id]
+            for comp in circuit.components.values():
+                if isinstance(comp, InputSource):
+                    comp.set_state(SignalState.LOW)
+                comp.output = SignalState.UNDEFINED
+            for comp in circuit.components.values():
+                if isinstance(comp, OutputDisplay):
+                    comp.clear_history()
+            circuit.simulation_history.clear()
+        
+        def callback_simulate(time_val, time_unit):
+            """シミュレーション実行コールバック"""
+            circuit = self.circuits[tab_id]
+            
+            # デバッグ: circuit.components を詳しくダンプ
+            print("\n=== circuit.components の内容 ===")
+            for comp_id, comp in circuit.components.items():
+                if isinstance(comp, InputSource):
+                    print(f"{comp_id} -> {comp.id}: {comp.name}, pulse_period={comp.pulse_period}{comp.pulse_period_unit.symbol}, ref_id={id(comp)}")
+            
+            # ステップ数を計算
+            steps = max(1, int(time_val / self.sim_time_step))
+            time_step_sec = self.sim_time_step * time_unit.multiplier
+            
+            circuit.simulate(steps=steps, time_step=time_step_sec)
+            self.update_status(f"シミュレーション完了: {time_val}{time_unit.symbol}")
+        
+        sim_panel = SimulationPanel(sim_panel_frame, self.circuits[tab_id], callback_reset, callback_simulate)
+        sim_panel_frame.sim_panel = sim_panel  # 参照を保持
+        
         # タブメタデータを保存
         self.tab_metadata_dict[tab_id] = {
             "canvas": canvas,
             "canvas_items": {},
             "wire_items": {},
             "v_scrollbar": v_scrollbar,
-            "h_scrollbar": h_scrollbar
+            "h_scrollbar": h_scrollbar,
+            "paned_window": paned_window,
+            "sim_panel_frame": sim_panel_frame,
+            "sim_panel_visible": False
         }
         
         # グリッドを描画
@@ -1115,6 +1611,39 @@ class CircuitSimulatorGUI:
         self.command_history.clear()
         
         self.update_status(f"新しいタブ '{self.notebook.tab(self.notebook.select(), 'text')}' を作成しました")
+    
+    def toggle_simulation_panel(self, tab_id: str):
+        """シミュレーションパネルの表示/非表示を切り替え"""
+        if tab_id not in self.tab_metadata_dict:
+            return
+        
+        metadata = self.tab_metadata_dict[tab_id]
+        paned_window = metadata["paned_window"]
+        sim_panel_frame = metadata["sim_panel_frame"]
+        
+        # 現在の状態を反転
+        is_visible = metadata["sim_panel_visible"]
+        
+        # パネルの表示/非表示を切り替え
+        if is_visible:
+            # 表示中 → 非表示
+            try:
+                paned_window.forget(sim_panel_frame)
+                metadata["sim_panel_visible"] = False
+                self.update_status("シミュレーションパネルを閉じました")
+            except Exception as e:
+                print(f"パネル非表示エラー: {e}")
+        else:
+            # 非表示 → 表示
+            try:
+                paned_window.add(sim_panel_frame, weight=1)
+                metadata["sim_panel_visible"] = True
+                # パネルの波形を更新
+                if hasattr(sim_panel_frame, 'sim_panel'):
+                    sim_panel_frame.sim_panel.update_waveform()
+                self.update_status("シミュレーションパネルを開きました")
+            except Exception as e:
+                print(f"パネル表示エラー: {e}")
     
     def on_tab_changed(self, event):
         """タブが変更された時"""
@@ -1429,8 +1958,10 @@ class CircuitSimulatorGUI:
         """コンポーネントのプロパティ編集"""
         prop_window = tk.Toplevel(self.root)
         prop_window.title("コンポーネント設定")
-        prop_window.geometry("420x360")
+        prop_window.geometry("480x520")
+        prop_window.transient(self.root)
 
+        # 基本情報
         ttk.Label(prop_window, text=f"タイプ: {comp.get_type()}").pack(anchor="w", padx=10, pady=5)
         ttk.Label(prop_window, text=f"ID: {comp.id}").pack(anchor="w", padx=10, pady=5)
 
@@ -1439,46 +1970,80 @@ class CircuitSimulatorGUI:
         name_entry.insert(0, comp.name)
         name_entry.pack(anchor="w", padx=10, pady=5)
 
+        # パルス設定（InputSourceの場合）
         pulse_enabled_var = tk.BooleanVar(value=False)
-        period_var = tk.IntVar(value=4)
+        period_var = tk.DoubleVar(value=1.0)
+        period_unit_var = tk.StringVar(value="ms")
         duty_var = tk.DoubleVar(value=50.0)
-        phase_var = tk.IntVar(value=0)
+        phase_var = tk.DoubleVar(value=0.0)
+        phase_unit_var = tk.StringVar(value="ms")
 
         if isinstance(comp, InputSource):
-            pulse_enabled_var.set(comp.pulse_enabled)
-            period_var.set(comp.pulse_period_steps)
+            period_var.set(comp.pulse_period)
+            period_unit_var.set(comp.pulse_period_unit.symbol)
             duty_var.set(comp.pulse_duty_cycle * 100.0)
             phase_var.set(comp.pulse_phase)
+            phase_unit_var.set(comp.pulse_phase_unit.symbol)
 
             ttk.Separator(prop_window, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=10)
-            ttk.Label(prop_window, text="パルス設定").pack(anchor="w", padx=10, pady=5)
+            ttk.Label(prop_window, text="パルス設定", font=("Arial", 10, "bold")).pack(anchor="w", padx=10, pady=5)
+            
+            # 周期設定
+            period_frame = ttk.Frame(prop_window)
+            period_frame.pack(anchor="w", padx=10, pady=5)
+            ttk.Label(period_frame, text="周期:").pack(side=tk.LEFT)
+            ttk.Entry(period_frame, textvariable=period_var, width=12).pack(side=tk.LEFT, padx=5)
+            ttk.Combobox(period_frame, textvariable=period_unit_var, width=8,
+                        values=[unit.symbol for unit in TimeUnit], state='readonly').pack(side=tk.LEFT)
+            
+            # デューティ比
+            duty_frame = ttk.Frame(prop_window)
+            duty_frame.pack(anchor="w", padx=10, pady=5)
+            ttk.Label(duty_frame, text="デューティ比:").pack(side=tk.LEFT)
+            ttk.Entry(duty_frame, textvariable=duty_var, width=12).pack(side=tk.LEFT, padx=5)
+            ttk.Label(duty_frame, text="%").pack(side=tk.LEFT)
+            
+            # 位相設定
+            phase_frame = ttk.Frame(prop_window)
+            phase_frame.pack(anchor="w", padx=10, pady=5)
+            ttk.Label(phase_frame, text="位相:").pack(side=tk.LEFT)
+            ttk.Entry(phase_frame, textvariable=phase_var, width=12).pack(side=tk.LEFT, padx=5)
+            ttk.Combobox(phase_frame, textvariable=phase_unit_var, width=8,
+                        values=[unit.symbol for unit in TimeUnit], state='readonly').pack(side=tk.LEFT)
+            
+            # 説明
+            info_text = "※時間ベースのパルス設定です。\nシミュレーション設定の時間単位と合わせて使用してください。"
+            ttk.Label(prop_window, text=info_text, foreground="gray", font=("Arial", 8)).pack(anchor="w", padx=10, pady=5)
 
-            ttk.Checkbutton(prop_window, text="パルスを有効化", variable=pulse_enabled_var).pack(anchor="w", padx=10, pady=5)
-            ttk.Label(prop_window, text="周期 (ステップ数):").pack(anchor="w", padx=10, pady=5)
-            ttk.Spinbox(prop_window, from_=1, to=1000, textvariable=period_var, width=10).pack(anchor="w", padx=10, pady=5)
-            ttk.Label(prop_window, text="デューティ比 (%):").pack(anchor="w", padx=10, pady=5)
-            ttk.Spinbox(prop_window, from_=1, to=100, textvariable=duty_var, width=10).pack(anchor="w", padx=10, pady=5)
-            ttk.Label(prop_window, text="位相 (ステップ):").pack(anchor="w", padx=10, pady=5)
-            ttk.Spinbox(prop_window, from_=0, to=1000, textvariable=phase_var, width=10).pack(anchor="w", padx=10, pady=5)
-
+        # 出力表示（OutputDisplayの場合）
         if isinstance(comp, OutputDisplay):
             ttk.Separator(prop_window, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=10)
             ttk.Label(prop_window, text=f"記録数: {len(comp.history)}").pack(anchor="w", padx=10, pady=5)
-            ttk.Button(prop_window, text="出力記録を表示", command=lambda: self.show_output_records(target_id=comp.id)).pack(anchor="w", padx=10, pady=5)
-            ttk.Button(prop_window, text="出力記録をクリア", command=comp.clear_history).pack(anchor="w", padx=10, pady=5)
+            ttk.Button(prop_window, text="出力記録を表示", 
+                      command=lambda: self.show_output_records(target_id=comp.id)).pack(anchor="w", padx=10, pady=5)
+            ttk.Button(prop_window, text="出力記録をクリア", 
+                      command=comp.clear_history).pack(anchor="w", padx=10, pady=5)
 
         def save_properties():
             comp.name = name_entry.get().strip() or comp.id
             if isinstance(comp, InputSource):
-                comp.pulse_enabled = bool(pulse_enabled_var.get())
-                comp.pulse_period_steps = max(1, int(period_var.get()))
+                comp.pulse_enabled = True  # パルスは常に有効
+                comp.pulse_period = max(0.001, float(period_var.get()))
+                comp.pulse_period_unit = TimeUnit.from_symbol(period_unit_var.get())
                 comp.pulse_duty_cycle = max(0.01, min(1.0, float(duty_var.get()) / 100.0))
-                comp.pulse_phase = int(phase_var.get())
+                comp.pulse_phase = float(phase_var.get())
+                comp.pulse_phase_unit = TimeUnit.from_symbol(phase_unit_var.get())
+                # デバッグ: 保存内容をログに出力
+                print(f"save_properties(): ID={comp.id}, 周期={comp.pulse_period}{comp.pulse_period_unit.symbol}, デューティ比={comp.pulse_duty_cycle}")
             self.redraw_canvas()
             self.update_status(f"{comp.get_type()} の設定を更新しました")
             prop_window.destroy()
 
-        ttk.Button(prop_window, text="保存", command=save_properties).pack(pady=10)
+        # ボタン
+        button_frame = ttk.Frame(prop_window)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="保存", command=save_properties).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="キャンセル", command=prop_window.destroy).pack(side=tk.LEFT, padx=5)
     
     def on_canvas_drag(self, event):
         """キャンバスドラッグ時の処理"""
@@ -1816,8 +2381,17 @@ class CircuitSimulatorGUI:
         try:
             circuit = self.circuits[self.current_circuit_tab]
             pulse_inputs = [c for c in circuit.components.values() if isinstance(c, InputSource) and c.pulse_enabled]
-            steps = self.pulse_steps if pulse_inputs else 1
-            circuit.simulate(steps=steps)
+            
+            # パルス入力がある場合は時間ベースのシミュレーション
+            if pulse_inputs:
+                # ステップ数を計算
+                steps = int(self.sim_total_time / self.sim_time_step)
+                time_step_sec = self.sim_time_step * self.sim_time_unit.multiplier
+                circuit.simulate(steps=steps, time_step=time_step_sec)
+            else:
+                # パルスなしの場合は単一ステップ
+                circuit.simulate(steps=1)
+            
             self.update_all_displays()
             self.update_status("シミュレーションを実行しました。")
             messagebox.showinfo("シミュレーション完了", "シミュレーションが正常に完了しました。")
@@ -1836,12 +2410,102 @@ class CircuitSimulatorGUI:
         self.update_all_displays()
 
     def open_pulse_settings(self):
-        """パルス実行設定を開く"""
+        """パルス実行設定を開く（後方互換性）"""
         value = simpledialog.askinteger("パルス実行設定", "パルス実行のステップ数を入力してください (1-1000)",
                                         initialvalue=self.pulse_steps, minvalue=1, maxvalue=1000)
         if value:
             self.pulse_steps = value
             self.update_status(f"パルス実行ステップ数: {self.pulse_steps}")
+    
+    def open_simulation_settings(self):
+        """シミュレーション設定ダイアログを開く"""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("シミュレーション設定")
+        settings_window.geometry("500x300")
+        settings_window.transient(self.root)
+        settings_window.grab_set()
+        
+        # メインフレーム
+        main_frame = ttk.Frame(settings_window, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 総シミュレーション時間
+        ttk.Label(main_frame, text="総シミュレーション時間:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        total_time_var = tk.DoubleVar(value=self.sim_total_time)
+        ttk.Entry(main_frame, textvariable=total_time_var, width=15).grid(row=0, column=1, pady=5)
+        
+        # 時間単位
+        ttk.Label(main_frame, text="時間単位:").grid(row=0, column=2, sticky=tk.W, padx=(10, 0), pady=5)
+        time_unit_var = tk.StringVar(value=self.sim_time_unit.symbol)
+        time_unit_combo = ttk.Combobox(main_frame, textvariable=time_unit_var, width=10, 
+                                       values=[unit.symbol for unit in TimeUnit], state='readonly')
+        time_unit_combo.grid(row=0, column=3, pady=5)
+        
+        # 時間ステップ
+        ttk.Label(main_frame, text="時間ステップ（1ステップあたり）:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        time_step_var = tk.DoubleVar(value=self.sim_time_step)
+        ttk.Entry(main_frame, textvariable=time_step_var, width=15).grid(row=1, column=1, pady=5)
+        ttk.Label(main_frame, text="(同じ単位)").grid(row=1, column=2, columnspan=2, sticky=tk.W, padx=(10, 0), pady=5)
+        
+        # 計算されるステップ数の表示
+        steps_label = ttk.Label(main_frame, text="")
+        steps_label.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=5)
+        
+        def update_steps_label(*args):
+            try:
+                total = total_time_var.get()
+                step = time_step_var.get()
+                if step > 0:
+                    steps = int(total / step)
+                    steps_label.config(text=f"計算ステップ数: {steps}")
+                else:
+                    steps_label.config(text="計算ステップ数: N/A")
+            except:
+                steps_label.config(text="計算ステップ数: N/A")
+        
+        total_time_var.trace('w', update_steps_label)
+        time_step_var.trace('w', update_steps_label)
+        update_steps_label()
+        
+        # 説明
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=4, sticky="ew", pady=10)
+        info_text = (
+            "シミュレーションの総時間と時間解像度を設定します。\n"
+            "例: 10msを0.1msステップでシミュレーションすると100ステップになります。"
+        )
+        ttk.Label(main_frame, text=info_text, wraplength=450, justify=tk.LEFT).grid(
+            row=4, column=0, columnspan=4, sticky=tk.W, pady=5
+        )
+        
+        # ボタン
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=5, column=0, columnspan=4, pady=20)
+        
+        def apply_settings():
+            try:
+                self.sim_total_time = total_time_var.get()
+                self.sim_time_unit = TimeUnit.from_symbol(time_unit_var.get())
+                self.sim_time_step = time_step_var.get()
+                self.update_status("シミュレーション設定を更新しました。")
+                settings_window.destroy()
+            except Exception as e:
+                messagebox.showerror("エラー", f"設定の適用に失敗しました:\n{str(e)}")
+        
+        ttk.Button(button_frame, text="適用", command=apply_settings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="キャンセル", command=settings_window.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def show_waveform(self):
+        """波形表示ダイアログを開く"""
+        circuit = self.circuits[self.current_circuit_tab]
+        if not circuit.simulation_history:
+            messagebox.showinfo("情報", "シミュレーションを先に実行してください。")
+            return
+        
+        # 時間ステップを計算
+        time_step_sec = self.sim_time_step * self.sim_time_unit.multiplier
+        
+        # 波形ダイアログを表示
+        WaveformDialog(self.root, circuit, time_step_sec, self.sim_total_time, self.sim_time_unit)
     
     def reset_simulation(self):
         """シミュレーションをリセット"""

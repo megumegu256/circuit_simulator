@@ -1,0 +1,12 @@
+
+=== 回路内のInputSource ===
+  ID: comp_1, 名前: comp_1, 周期: 1.0ms, オブジェクトID: 2633561397584
+  ID: comp_2, 名前: comp_2, 周期: 2.0ms, オブジェクトID: 2633561397776
+  ID: comp_3, 名前: comp_3, 周期: 0.3ms, オブジェクトID: 2633561397200
+
+=== simulation_history ===
+Step 0: {'comp_1': <SignalState.HIGH: 1>, 'comp_2': <SignalState.HIGH: 1>, 'comp_3': <SignalState.HIGH: 1>}
+Step 1: {'comp_1': <SignalState.HIGH: 1>, 'comp_2': <SignalState.HIGH: 1>, 'comp_3': <SignalState.HIGH: 1>}
+Step 2: {'comp_1': <SignalState.LOW: 0>, 'comp_2': <SignalState.LOW: 0>, 'comp_3': <SignalState.LOW: 0>}
+Step 3: {'comp_1': <SignalState.HIGH: 1>, 'comp_2': <SignalState.HIGH: 1>, 'comp_3': <SignalState.HIGH: 1>}
+Step 4: {'comp_1': <SignalState.HIGH: 1>, 'comp_2': <SignalState.HIGH: 1>, 'comp_3': <SignalState.HIGH: 1>}

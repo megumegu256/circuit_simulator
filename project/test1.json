@@ -1,0 +1,74 @@
+{
+    "circuit_type": "logic",
+    "components": [
+        {
+            "type": "AND",
+            "id": "comp_1",
+            "name": "comp_1",
+            "x": 353.7499999999999,
+            "y": 275.75
+        },
+        {
+            "type": "INPUT",
+            "id": "comp_3",
+            "name": "comp_3",
+            "x": 240,
+            "y": 240,
+            "state": 1,
+            "pulse_enabled": false,
+            "pulse_period": 1.0,
+            "pulse_period_unit": "ms",
+            "pulse_duty_cycle": 0.5,
+            "pulse_phase": 0.0,
+            "pulse_phase_unit": "ms",
+            "pulse_period_steps": 4,
+            "pulse_phase_steps": 0
+        },
+        {
+            "type": "INPUT",
+            "id": "comp_4",
+            "name": "comp_4",
+            "x": 240,
+            "y": 340,
+            "state": 1,
+            "pulse_enabled": true,
+            "pulse_period": 2.0,
+            "pulse_period_unit": "ms",
+            "pulse_duty_cycle": 0.5,
+            "pulse_phase": 0.0,
+            "pulse_phase_unit": "ms",
+            "pulse_period_steps": 4,
+            "pulse_phase_steps": 0
+        },
+        {
+            "type": "OUTPUT",
+            "id": "comp_5",
+            "name": "comp_5",
+            "x": 480,
+            "y": 260
+        }
+    ],
+    "wires": [
+        {
+            "id": "wire_1",
+            "from": "comp_1",
+            "to": "comp_5",
+            "to_input_index": 0,
+            "points": []
+        },
+        {
+            "id": "wire_2",
+            "from": "comp_3",
+            "to": "comp_1",
+            "to_input_index": 0,
+            "points": []
+        },
+        {
+            "id": "wire_3",
+            "from": "comp_4",
+            "to": "comp_1",
+            "to_input_index": 1,
+            "points": []
+        }
+    ]
+}
